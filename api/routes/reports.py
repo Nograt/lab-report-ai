@@ -1,10 +1,22 @@
 from typing import Annotated
-
+import shutil
 from fastapi import APIRouter, File, Form, UploadFile, HTTPException
 from app.services.instruction_parser import parse_report_instruction
 from app.services.excel_reader import read_meansurements
-from app.services.chart_generator import create_chart_specifications, generate_chart
-from app.services.storage import ( create_report_workspace,save_measurements, save_report_state, load_report_state)
+from app.services.chart_generator import (
+    create_chart_specifications,
+    generate_chart,
+    match_column_name,
+)
+from app.services.storage import (
+    create_report_workspace,
+    save_measurements,
+    save_report_state,
+    load_report_state,
+    get_report_dir,
+    save_report_state_data,
+)
+from app.schemas.chart import UpdateChartsRequest
 
 
 
@@ -63,3 +75,107 @@ def get_report(report_id:str):
         raise HTTPException(status_code=404, detail=str(error))
     
     return state
+
+@router.patch("/{report_id}/charts")
+def update_report_charts(
+    report_id: str,
+    request: UpdateChartsRequest
+):
+    try:
+        state = load_report_state(report_id)
+        report_dir = get_report_dir(report_id)
+
+    except FileNotFoundError as error:
+        raise HTTPException(
+            status_code=404,
+            detail=str(error)
+        )
+
+    measurements_path = (
+        report_dir / state["measurements_file"]
+    )
+
+    df, units = read_meansurements(
+        str(measurements_path)
+    )
+
+    charts = []
+
+    try:
+        for chart in request.charts:
+
+            x = match_column_name(
+                chart.x,
+                df
+            )
+
+            y = match_column_name(
+                chart.y,
+                df
+            )
+
+            normalized_chart = chart.model_copy(
+                update={
+                    "x": x,
+                    "y": y,
+                }
+            )
+
+            charts.append(normalized_chart)
+
+    except ValueError as error:
+        raise HTTPException(
+            status_code=422,
+            detail=str(error)
+        )
+        
+    temp_dir = report_dir / "charts_temp"
+
+    if temp_dir.exists():
+        shutil.rmtree(temp_dir)
+        
+    try:
+        generated_files = generate_chart(
+            df=df,
+            units=units,
+            charts=charts,
+            output_dir=temp_dir
+        )
+
+    except ValueError as error:
+        if temp_dir.exists():
+            shutil.rmtree(temp_dir)
+
+        raise HTTPException(
+            status_code=422,
+            detail=str(error)
+        )
+        
+    charts_dir = report_dir / "charts"
+
+    if charts_dir.exists():
+        shutil.rmtree(charts_dir)
+
+    temp_dir.rename(charts_dir)
+    
+    state["charts"] = [
+        chart.model_dump()
+        for chart in charts
+    ]
+
+    state["units"] = units
+
+    save_report_state_data(
+        report_id,
+        state
+        )
+    
+    return {
+        "report_id": report_id,
+        "charts": [
+            chart.model_dump()
+            for chart in charts
+        ],
+        "generated_charts": len(generated_files),
+    }
+    

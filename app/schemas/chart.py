@@ -15,3 +15,6 @@ class ChartSpecification(BaseModel):
 
     show_grid: bool = True
     show_legend: bool = True
+    
+class UpdateChartsRequest(BaseModel):
+    charts: list[ChartSpecification]
