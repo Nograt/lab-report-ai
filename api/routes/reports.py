@@ -4,8 +4,7 @@ from fastapi import APIRouter, File, Form, UploadFile, HTTPException
 from app.services.instruction_parser import parse_report_instruction
 from app.services.excel_reader import read_meansurements
 from app.services.chart_generator import create_chart_specifications, generate_chart
-from app.services.storage import create_report_workspace
-
+from app.services.storage import ( create_report_workspace,save_measurements, save_report_state,)
 
 
 router = APIRouter(prefix="/reports", tags=["reports"])
@@ -27,16 +26,21 @@ async def analyze_report(instruction: Annotated[str, Form()], measurements: Anno
     
     report_id, report_dir = create_report_workspace()
     
-    print("REPORT DIR:", report_dir.resolve())
-    print("CHARTS DIR:", (report_dir / "charts").resolve())
+    save_measurements( measurements.file, report_dir)
+    
     
     generated_files = generate_chart(df=df, units=units,charts=charts,output_dir= report_dir/ "charts")
     
+    print("REPORT ID:", report_id)
+    print("REPORT DIR:", report_dir.resolve())
     print("GENERATED FILES:", generated_files)
-    
+
     for file in generated_files:
-        print(file.resolve(), file.exists())
+        print("FILE:", file.resolve())
+        print("EXISTS:", file.exists())
     
+    save_report_state(report_dir=report_dir,report_id=report_id,specification=specification,charts=charts,units=units)
+
    
    
     return {
