@@ -6,14 +6,46 @@ from matplotlib.ticker import MaxNLocator
 from app.schemas.chart import ChartSpecification
 
 
-def create_chart_specifications(ai_specifications):
+def create_chart_specifications(ai_specifications, df):
     charts = []
-    
+
     for ai_chart in ai_specifications.charts:
-        chart = ChartSpecification(figure_id=ai_chart.figure_id, x=ai_chart.x,y=ai_chart.y)
+        x = match_column_name(
+            ai_chart.x,
+            df
+        )
+
+        y = match_column_name(
+            ai_chart.y,
+            df
+        )
+
+        chart = ChartSpecification(
+            figure_id=ai_chart.figure_id,
+            x=x,
+            y=y,
+        )
+
         charts.append(chart)
-        
+
     return charts
+        
+
+def match_column_name(column_name:str, df) -> str:
+    if column_name in df:
+        return column_name
+    
+    matches = [
+        col for col in df.columns if col.lower() == column_name.lower()
+    ]
+    
+    if len(matches) == 1:
+        return matches[0]
+    
+    raise ValueError(
+        f"Unable to find column '{column_name}'. "
+        f"Available columns: {df.columns.tolist()}")
+    
 
 def generate_chart(df, units, charts):
     

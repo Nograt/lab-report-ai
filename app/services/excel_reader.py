@@ -1,4 +1,5 @@
 import pandas as pd
+from typing import BinaryIO
 
 
 def parse_column(column: str) -> tuple[str, str | None]:
@@ -14,9 +15,9 @@ def parse_column(column: str) -> tuple[str, str | None]:
 
 
 
-def read_meansurements(file_path: str)-> tuple[pd.DataFrame, dict[str, str|None]]:
+def read_meansurements(file: str | BinaryIO)-> tuple[pd.DataFrame, dict[str, str|None]]:
     try:
-        df = pd.read_excel(file_path,decimal=",")
+        df = pd.read_excel(file ,decimal=",")
     except Exception as error:
         raise Exception(f"Problem with loading data: {error}")
     
