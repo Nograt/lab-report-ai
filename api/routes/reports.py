@@ -4,7 +4,8 @@ from fastapi import APIRouter, File, Form, UploadFile, HTTPException
 from app.services.instruction_parser import parse_report_instruction
 from app.services.excel_reader import read_meansurements
 from app.services.chart_generator import create_chart_specifications, generate_chart
-from app.services.storage import ( create_report_workspace,save_measurements, save_report_state,)
+from app.services.storage import ( create_report_workspace,save_measurements, save_report_state, load_report_state)
+
 
 
 router = APIRouter(prefix="/reports", tags=["reports"])
@@ -52,3 +53,13 @@ async def analyze_report(instruction: Annotated[str, Form()], measurements: Anno
     ],
     "generated_charts": len(generated_files),
 }
+    
+@router.get("/{report_id}")
+def get_report(report_id:str):
+    try:
+        state = load_report_state(report_id)
+        
+    except FileNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error))
+    
+    return state

@@ -69,7 +69,23 @@ def save_report_state(
         )
 
     return file_path
-    
-    
-    
-    
+
+def load_report_state(report_id: str) -> dict:
+    report_dir = STORAGE_DIR / report_id
+    state_file = report_dir / "report.json"
+
+    if not report_dir.exists():
+        raise FileNotFoundError(
+            f"Report '{report_id}' does not exist."
+        )
+
+    if not state_file.exists():
+        raise FileNotFoundError(
+            f"State file for report '{report_id}' does not exist."
+        )
+
+    with state_file.open(
+        "r",
+        encoding="utf-8"
+    ) as file:
+        return json.load(file)
