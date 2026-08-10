@@ -4,6 +4,7 @@ from app.services.excel_reader import read_meansurements, get_chart_data
 from app.services.instruction_parser import parse_report_instruction
 from matplotlib.ticker import MaxNLocator
 from app.schemas.chart import ChartSpecification
+from pathlib import Path
 
 
 def create_chart_specifications(ai_specifications, df):
@@ -47,16 +48,19 @@ def match_column_name(column_name:str, df) -> str:
         f"Available columns: {df.columns.tolist()}")
     
 
-def generate_chart(df, units, charts):
+def generate_chart(df, units, charts, output_dir: Path):
     
     grouped_charts = defaultdict(list)
+    
+    output_dir.mkdir(parents=True,exist_ok=True)
+    
+    generated_files = []
     
     for chart in charts:
         grouped_charts[chart.figure_id].append(chart)
         
     for figure_id, charts in grouped_charts.items():
         
-    # wspólny X bierzemy z pierwszej charakterystyki
         shared_x = charts[0].x
 
         for chart in charts:
@@ -71,18 +75,14 @@ def generate_chart(df, units, charts):
         
         ax.set_xscale(charts[0].x_scale)
 
-        # robimy miejsce na dodatkowe osie po prawej
         if len(charts) > 1:
             fig.subplots_adjust(right=0.75)
 
         axes = [ax]
 
-        # tworzymy dodatkowe osie Y
         for i in range(1, len(charts)):
             new_ax = ax.twinx()
 
-            # druga oś jest normalnie po prawej,
-            # każdą kolejną przesuwamy dalej
             if i > 1:
                 new_ax.spines.right.set_position(
                     ("axes", 1 + 0.2 * (i - 1))
@@ -167,5 +167,16 @@ def generate_chart(df, units, charts):
             ax.set_xlabel(f"{shared_x} [-]")
         else:
             ax.set_xlabel(f"{shared_x} [{x_unit}]")
+            
+        file_path = output_dir / f"figure_{figure_id}.png"
         
-    plt.show()
+        fig.savefig(file_path,dpi=150,bbox_inches="tight")
+        
+        plt.close(fig)
+        
+        generated_files.append(file_path)
+        
+    return generated_files
+        
+        
+
