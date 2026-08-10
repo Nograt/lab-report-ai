@@ -137,12 +137,3 @@ def generate_chart(df, units, charts):
             ax.set_xlabel(f"{shared_x} [{x_unit}]")
         
     plt.show()
-df, units = read_meansurements(
-    r"C:\Users\wojta\Desktop\Book1.xlsx"
-)   
-
-ai_specification = parse_report_instruction(" Na podstawie pomiarów z punktu 3 wykonać na wspólnym wykresie charakterystyki Uk(I), P(I) oraz cosφK(I).")  
- 
-charts = create_chart_specifications(ai_specification)
-
-generate_chart(df,units,charts)
