@@ -25,7 +25,7 @@ def create_report_workspace() -> tuple[str, Path]:
     return report_id, report_dir
 
 def save_measurements(file: BinaryIO, report_dir: Path) -> Path:
-    file_path = report_dir / "mesaurements.xlsx"
+    file_path = report_dir /  "measurements.xlsx"
     
     file.seek(0)
     
