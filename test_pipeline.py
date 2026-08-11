@@ -1,48 +1,114 @@
-from pathlib import Path
-
-from app.services.instruction_parser import parse_report_instruction
 from app.services.excel_reader import read_meansurements
-from app.services.chart_generator import (
-    create_chart_specifications,
-    generate_chart,
+from app.services.result_analyzer import analyze_section
+
+from app.schemas.section import ReportSection
+from app.schemas.chart import ChartSpecification
+
+
+import numpy as np
+import pandas as pd
+
+from app.schemas.section import ReportSection
+from app.schemas.chart import ChartSpecification
+
+from app.schemas.analysis import (
+    ColumnAnalysis,
+    ChartRelationshipAnalysis,
+    SectionAnalysis,
 )
 
 
-instruction = """
-Na podstawie pomiarów wykonać na osobnych wykresach
-charakterystyki Uk(I), P(I) oraz cosφK(I).
-"""
-
-
-# 1. Parser AI
-ai_specification = parse_report_instruction(
-    instruction
+df, _ = read_meansurements(
+    "storage/reports/4c363147-d7c4-4872-8938-e86984d26411/"
+    "completed_measurements.xlsx"
 )
 
 
-# 2. Excel
-df, units = read_meansurements(
-    "test.xlsx"
+units = {
+    "Lp": None,
+    "Uk": "V",
+    "I": "A",
+    "P": "W",
+    "Pap": "W",
+    "PK": "W",
+    "cosφK": None,
+    "Tl": "Nm",
+}
+
+
+
+section = ReportSection.model_validate(
+    {
+        "section_id": 1,
+        "title": "Pomiary charakterystyk w stanie zwarcia",
+
+        "table": {
+            "title": "Wyniki pomiarów charakterystyk w stanie zwarcia",
+            "columns": [
+                "Lp",
+                "Uk",
+                "I",
+                "P",
+                "Pap",
+                "PK",
+                "cosφK",
+                "Tl",
+            ],
+        },
+
+        "calculation_outputs": [
+            "PK",
+            "cosφK",
+        ],
+
+        "chart_figure_ids": [
+            1,
+            2,
+        ],
+
+        "include_description": True,
+        "include_analysis": True,
+    }
 )
 
 
-# 3. ChartSpecification
-charts = create_chart_specifications(
-    ai_specification,
-    df
-)
+
+charts = [
+    ChartSpecification(
+        figure_id=1,
+        x="I",
+        y="PK",
+        connect_points=True,
+        x_scale="linear",
+        y_scale="linear",
+        show_grid=True,
+        show_legend=True,
+    ),
+
+    ChartSpecification(
+        figure_id=2,
+        x="I",
+        y="cosφK",
+        connect_points=True,
+        x_scale="linear",
+        y_scale="linear",
+        show_grid=True,
+        show_legend=True,
+    ),
+]
 
 
-# 4. Generowanie PNG
-generated_files = generate_chart(
+
+analysis = analyze_section(
     df=df,
+    section=section,
     units=units,
     charts=charts,
-    output_dir=Path("storage/test/charts")
 )
 
 
-print("Generated files:")
-
-for file in generated_files:
-    print(file)
+print(
+    analysis.model_dump_json(
+        indent=2
+    )
+)
