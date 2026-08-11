@@ -1,4 +1,6 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from typing import Literal
+from app.schemas.calculation import CalculationSpecification
 
 
 class ParsedChartSpecification(BaseModel):
@@ -9,4 +11,15 @@ class ParsedChartSpecification(BaseModel):
 
 class ReportSpecification(BaseModel):
     source_section: str | None = None
-    charts: list[ParsedChartSpecification]
+
+    calculations: list[CalculationSpecification] = Field(
+        default_factory=list
+    )
+
+    charts: list[ParsedChartSpecification] = Field(
+        default_factory=list
+    )
+    
+    
+
+    
