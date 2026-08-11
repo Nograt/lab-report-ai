@@ -1,5 +1,6 @@
 from typing import Annotated
 import shutil
+import pandas as pd
 from fastapi import APIRouter, File, Form, UploadFile, HTTPException
 from app.services.instruction_parser import parse_report_instruction
 from app.services.excel_reader import read_meansurements
@@ -198,3 +199,43 @@ def update_report_charts(
         "generated_charts": len(generated_files),
     }
     
+@router.get("/{report_id}/data")
+def get_report_data(report_id: str):
+    try:
+        state = load_report_state(report_id)
+        report_dir = get_report_dir(report_id)
+
+    except FileNotFoundError as error:
+        raise HTTPException(
+            status_code=404,
+            detail=str(error)
+        )
+
+    completed_file = (
+        report_dir
+        / state["completed_measurements_file"]
+    )
+
+    if not completed_file.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Completed measurements file does not exist."
+        )
+
+    df, _ = read_meansurements(
+        str(completed_file)
+    )
+
+    clean_df = (
+        df.astype(object)
+        .where(pd.notna(df), None)
+    )
+
+    return {
+        "report_id": report_id,
+        "columns": df.columns.tolist(),
+        "units": state["units"],
+        "rows": clean_df.to_dict(
+            orient="records"
+        ),
+    }
