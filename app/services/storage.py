@@ -44,6 +44,8 @@ def save_report_state(
     charts,
     units,
     example_calculations,
+    section_analyses,
+    report_text,    
 ) -> Path:
 
     state = {
@@ -64,6 +66,13 @@ def save_report_state(
 
     "completed_measurements_file":
         "completed_measurements.xlsx",
+        
+    "section_analyses": [
+    analysis.model_dump()
+    for analysis in section_analyses
+],
+
+"report_text": report_text.model_dump(),
 }
 
     file_path = report_dir / "report.json"

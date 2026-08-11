@@ -74,11 +74,23 @@ section_id must exactly match the corresponding ReportSection.section_id.
 DESCRIPTION
 
 The section description should explain:
+
 - what was measured,
 - what was changed during the measurement,
 - what quantities were determined or calculated.
 
 Use past tense when describing performed measurements.
+
+Distinguish measured quantities from calculated or otherwise provided quantities.
+
+State that a quantity was measured only if the laboratory instruction
+explicitly says that it was measured, read or recorded during the experiment.
+
+The presence of a variable in a results table does not by itself mean
+that it was directly measured.
+
+Calculated quantities should be described as calculated, determined
+or obtained from calculations, not measured.
 
 Do not analyze results in the description.
 

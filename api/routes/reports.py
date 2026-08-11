@@ -30,71 +30,207 @@ from app.schemas.report import (
     UpdateExampleRowRequest,
 )
 
+from app.services.result_analyzer import analyze_section
+from app.services.report_text_generator import generate_report_text
+
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
 @router.post("/analyze")
-async def analyze_report(instruction: Annotated[str, Form()], measurements: Annotated[UploadFile, File()]):
-   
-    df, units = read_meansurements(measurements.file)
+async def analyze_report(
+    instruction: Annotated[str, Form()],
+    measurements: Annotated[UploadFile, File()],
+):
+    # --------------------------------------------------------
+    # 1. Excel
+    # --------------------------------------------------------
 
-    specification = parse_report_instruction(instruction=instruction,available_columns=df.columns.tolist(),units=units,)
-    
+    df, units = read_meansurements(
+        measurements.file
+    )
+
+    # --------------------------------------------------------
+    # 2. Analiza instrukcji przez AI
+    # --------------------------------------------------------
+
+    specification = parse_report_instruction(
+        instruction=instruction,
+        available_columns=df.columns.tolist(),
+        units=units,
+    )
+
+    # --------------------------------------------------------
+    # 3. Obliczenia
+    # --------------------------------------------------------
+
     try:
-        completed_df = execute_calculations(df=df,calculations=specification.calculations,)
+        completed_df = execute_calculations(
+            df=df,
+            calculations=specification.calculations,
+        )
 
     except ValueError as error:
         raise HTTPException(
-        status_code=422,
-        detail=str(error)
-    )
-        
+            status_code=422,
+            detail=str(error),
+        )
+
+    # --------------------------------------------------------
+    # 4. Jednostki obliczonych kolumn
+    # --------------------------------------------------------
+
     for calculation in specification.calculations:
+
         if calculation.output not in units:
             units[calculation.output] = calculation.unit
-        
+
         elif units[calculation.output] is None:
             units[calculation.output] = calculation.unit
-            
+
+    # --------------------------------------------------------
+    # 5. Przykładowe obliczenia
+    # --------------------------------------------------------
+
     try:
-        example_calculations = create_example_calculations(df=completed_df,calculations=specification.calculations,units=units,row_index=0,)
+        example_calculations = create_example_calculations(
+            df=completed_df,
+            calculations=specification.calculations,
+            units=units,
+            row_index=0,
+        )
 
     except ValueError as error:
-        raise HTTPException(status_code=422,detail=str(error))
-            
+        raise HTTPException(
+            status_code=422,
+            detail=str(error),
+        )
+
+    # --------------------------------------------------------
+    # 6. Specyfikacja wykresów
+    # --------------------------------------------------------
+
     try:
-        charts = create_chart_specifications(specification,completed_df)
+        charts = create_chart_specifications(
+            specification,
+            completed_df,
+        )
 
     except ValueError as error:
-        raise HTTPException(status_code=422,detail=str(error))
-    
+        raise HTTPException(
+            status_code=422,
+            detail=str(error),
+        )
+
+    # --------------------------------------------------------
+    # 7. Deterministyczna analiza każdej sekcji
+    # --------------------------------------------------------
+
+    section_analyses = []
+
+    for section in specification.sections:
+
+        section_analysis = analyze_section(
+            df=completed_df,
+            section=section,
+            units=units,
+            charts=charts,
+        )
+
+        section_analyses.append(
+            section_analysis
+        )
+
+    # --------------------------------------------------------
+    # 8. Generowanie całego tekstu sprawozdania
+    # --------------------------------------------------------
+
+    # WAŻNE:
+    # to jest POZA pętlą for section
+
+    try:
+        report_text = generate_report_text(
+            specification=specification,
+            analyses=section_analyses,
+            instruction=instruction,
+        )
+
+    except ValueError as error:
+        raise HTTPException(
+            status_code=422,
+            detail=str(error),
+        )
+
+    # --------------------------------------------------------
+    # 9. Workspace raportu
+    # --------------------------------------------------------
+
     report_id, report_dir = create_report_workspace()
-    
-    save_measurements( measurements.file, report_dir)
-    
-    save_completed_measurements(completed_df,report_dir)
-    
-    
-    generated_files = generate_chart(df=completed_df, units=units,charts=charts,output_dir= report_dir/ "charts")
-    
-    
-    save_report_state(report_dir=report_dir,report_id=report_id,specification=specification,charts=charts,units=units,example_calculations=example_calculations)
 
-   
-   
+    # --------------------------------------------------------
+    # 10. Zapis plików Excel
+    # --------------------------------------------------------
+
+    save_measurements(
+        measurements.file,
+        report_dir,
+    )
+
+    save_completed_measurements(
+        completed_df,
+        report_dir,
+    )
+
+    # --------------------------------------------------------
+    # 11. Generowanie wykresów PNG
+    # --------------------------------------------------------
+
+    generated_files = generate_chart(
+        df=completed_df,
+        units=units,
+        charts=charts,
+        output_dir=report_dir / "charts",
+    )
+
+    # --------------------------------------------------------
+    # 12. Zapis całego stanu raportu
+    # --------------------------------------------------------
+
+    save_report_state(
+        report_dir=report_dir,
+        report_id=report_id,
+        specification=specification,
+        charts=charts,
+        units=units,
+        example_calculations=example_calculations,
+        section_analyses=section_analyses,
+        report_text=report_text,
+    )
+
+    # --------------------------------------------------------
+    # 13. Response
+    # --------------------------------------------------------
+
     return {
-    "report_id": report_id,
-    "specification": specification.model_dump(),
+        "report_id": report_id,
 
-    "charts": [
-        chart.model_dump()
-        for chart in charts
-    ],
+        "specification": specification.model_dump(),
 
-    "example_calculations": example_calculations,
+        "charts": [
+            chart.model_dump()
+            for chart in charts
+        ],
 
-    "generated_charts": len(generated_files),
-}
+        "example_calculations": example_calculations,
+
+        "section_analyses": [
+            analysis.model_dump()
+            for analysis in section_analyses
+        ],
+
+        "report_text": report_text.model_dump(),
+
+        "generated_charts": len(generated_files),
+    }
     
 @router.get("/{report_id}")
 def get_report(report_id:str):
