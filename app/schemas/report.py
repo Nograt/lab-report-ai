@@ -20,6 +20,9 @@ class ReportSpecification(BaseModel):
         default_factory=list
     )
     
+class UpdateExampleRowRequest(BaseModel):
+    row_index: int
+    
     
 
     

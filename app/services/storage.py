@@ -38,23 +38,32 @@ def save_measurements(file: BinaryIO, report_dir: Path) -> Path:
     return file_path
 
 def save_report_state(
-    report_dir: Path,
+     report_dir: Path,
     report_id: str,
     specification,
     charts,
-    units
+    units,
+    example_calculations,
 ) -> Path:
 
     state = {
     "report_id": report_id,
+
     "specification": specification.model_dump(),
+
     "charts": [
         chart.model_dump()
         for chart in charts
     ],
+
     "units": units,
+
+    "example_calculations": example_calculations,
+
     "measurements_file": "measurements.xlsx",
-    "completed_measurements_file":"completed_measurements.xlsx",
+
+    "completed_measurements_file":
+        "completed_measurements.xlsx",
 }
 
     file_path = report_dir / "report.json"

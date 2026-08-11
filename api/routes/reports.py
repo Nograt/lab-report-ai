@@ -21,7 +21,14 @@ from app.services.storage import (
 from app.schemas.chart import UpdateChartsRequest
 from app.services.calculation_engine import execute_calculations
 
+from app.services.example_calculations import (
+    create_example_calculations,
+)
 
+from app.schemas.report import (
+    ReportSpecification,
+    UpdateExampleRowRequest,
+)
 
 
 router = APIRouter(prefix="/reports", tags=["reports"])
@@ -50,6 +57,12 @@ async def analyze_report(instruction: Annotated[str, Form()], measurements: Anno
             units[calculation.output] = calculation.unit
             
     try:
+        example_calculations = create_example_calculations(df=completed_df,calculations=specification.calculations,units=units,row_index=0,)
+
+    except ValueError as error:
+        raise HTTPException(status_code=422,detail=str(error))
+            
+    try:
         charts = create_chart_specifications(specification,completed_df)
 
     except ValueError as error:
@@ -64,25 +77,22 @@ async def analyze_report(instruction: Annotated[str, Form()], measurements: Anno
     
     generated_files = generate_chart(df=completed_df, units=units,charts=charts,output_dir= report_dir/ "charts")
     
-    print("REPORT ID:", report_id)
-    print("REPORT DIR:", report_dir.resolve())
-    print("GENERATED FILES:", generated_files)
-
-    for file in generated_files:
-        print("FILE:", file.resolve())
-        print("EXISTS:", file.exists())
     
-    save_report_state(report_dir=report_dir,report_id=report_id,specification=specification,charts=charts,units=units)
+    save_report_state(report_dir=report_dir,report_id=report_id,specification=specification,charts=charts,units=units,example_calculations=example_calculations)
 
    
    
     return {
     "report_id": report_id,
     "specification": specification.model_dump(),
+
     "charts": [
         chart.model_dump()
         for chart in charts
     ],
+
+    "example_calculations": example_calculations,
+
     "generated_charts": len(generated_files),
 }
     
@@ -238,4 +248,61 @@ def get_report_data(report_id: str):
         "rows": clean_df.to_dict(
             orient="records"
         ),
+    }
+    
+    
+@router.patch("/{report_id}/example-calculations")
+def update_example_calculations(
+    report_id: str,
+    request: UpdateExampleRowRequest,
+):
+    try:
+        state = load_report_state(report_id)
+        report_dir = get_report_dir(report_id)
+
+    except FileNotFoundError as error:
+        raise HTTPException(
+            status_code=404,
+            detail=str(error)
+        )
+
+    completed_file = (
+        report_dir
+        / state["completed_measurements_file"]
+    )
+
+    df, _ = read_meansurements(
+        str(completed_file)
+    )
+
+    specification = ReportSpecification.model_validate(
+        state["specification"]
+    )
+
+    try:
+        examples = create_example_calculations(
+            df=df,
+            calculations=specification.calculations,
+            units=state["units"],
+            row_index=request.row_index,
+        )
+
+    except ValueError as error:
+        raise HTTPException(
+            status_code=422,
+            detail=str(error)
+        )
+
+    state["example_calculations"] = examples
+    state["example_row_index"] = request.row_index
+
+    save_report_state_data(
+        report_id,
+        state
+    )
+
+    return {
+        "report_id": report_id,
+        "row_index": request.row_index,
+        "example_calculations": examples,
     }
