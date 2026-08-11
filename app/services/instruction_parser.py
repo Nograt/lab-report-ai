@@ -1,5 +1,5 @@
 import os
-
+import json
 from openai import OpenAI
 from app.schemas.report import ReportSpecification
 
@@ -8,88 +8,228 @@ client = OpenAI()
 SYSTEM_PROMPT = """
 You analyze laboratory report instructions.
 
-Your task is to extract chart requirements from the instruction.
+Your task is to extract the complete structure and processing requirements
+needed to prepare a laboratory report.
 
 Return data strictly according to ReportSpecification.
 
+Do not invent measurements, formulas, tables, charts, sections,
+units, or laboratory requirements that are not supported by the instruction
+or by the provided Excel metadata.
+
+
+==================================================
+GENERAL REPORT STRUCTURE
+==================================================
+
+The report may contain:
+
+- report title,
+- purpose,
+- theory,
+- measurement setup,
+- measurement/result sections,
+- conclusions.
+
+Measurement/result sections are stored in `sections`.
+
+Purpose, theory, setup and conclusions are NOT ReportSection objects.
+They are controlled by:
+
+- include_purpose
+- include_theory
+- include_setup
+- include_conclusions
+
 Rules:
 
-1. A characteristic written as U(I) means:
-   x = "I"
-   y = "U"
+- report_title should contain only the overall laboratory exercise title.
 
-2. A characteristic written as P(I) means:
-   x = "I"
-   y = "P"
+- If the instruction explicitly provides a title such as
+  "Temat ćwiczenia: ...", preserve that title as closely as possible.
 
-3. x and y must contain only the variable symbol.
-   Never include the complete characteristic notation.
+- Do not append measurement section titles, subsection names,
+  chart names or processing stages to report_title.
 
-Correct:
-x = "I"
-y = "Uk"
+- If the overall exercise title cannot be identified from the instruction,
+  return null.
 
-Incorrect:
-y = "Uk(I)"
 
-4. If multiple characteristics are explicitly required
-   on the same chart, give them the same figure_id.
+- include_purpose should always be true.
 
-Example:
+- The final report always contains a purpose section.
 
-"Na jednym wykresie przedstawić Uk(I), P(I) oraz cosφK(I)"
 
-means:
+- include_setup should always be true.
 
-Uk(I)     figure_id = 1
-P(I)      figure_id = 1
-cosφK(I)  figure_id = 1
+- The final report always contains a description of the tested circuit,
+  measurement setup or laboratory station.
 
-5. If characteristics are required on separate charts,
-   use different figure_id values.
+- The content of the setup section must be based only on information
+  available in the laboratory instruction or other provided materials.
 
-6. source_section should contain the referenced measurement
-   section if the instruction explicitly specifies one,
-   for example "punkt 3".
+- Do not invent equipment, circuit elements, connections, apparatus
+  or measurement procedures that are not supported by the provided materials.
 
-If no source section is specified, return null.
+- Even if the instruction does not explicitly request a setup description,
+  include_setup remains true.
 
-7. Do not invent additional charts.
 
-8. Preserve variable symbols as closely as possible
-   to the notation used in the instruction.
-   
+- include_conclusions should always be true.
+
+- The final report always contains conclusions.
+
+
+- include_theory should be true only when the instruction requires
+  theoretical description, theoretical background, description of
+  the physical phenomenon, principle of operation or similar theory content.
+
+- Otherwise include_theory should be false.
+
+
+- A request to "describe the measurements", "describe the test",
+  "describe the results" or similar wording should normally be represented
+  by ReportSection.include_description = true.
+
+- Such wording does not create a separate report section by itself.
+
+
+- Preserve the order of measurement/result sections from the instruction.
+
+==================================================
+REPORT SECTIONS
+==================================================
+
+A ReportSection represents one measurement or result-processing stage,
+for example:
+
+- no-load test,
+- short-circuit test,
+- load test,
+- resistance measurement,
+- diode forward-bias measurement.
+
+For every distinct measurement/result stage return one ReportSection.
+
+Rules:
+
+- section_id is an internal sequential identifier starting from 1.
+
+- section_id is NOT visible numbering such as 3.1, 3.2 or 4.1.
+
+- title should describe the measurement/result stage.
+
+- Preserve section titles from the instruction whenever possible.
+
+- Do not create sections for:
+  purpose,
+  theory,
+  setup,
+  conclusions.
+
+- If the instruction contains calculations, a results table or charts
+  but does not explicitly name the measurement stage, create one reasonable
+  result section describing that group of work.
+
+- Do not merge clearly separate measurement stages into one section.
+
+
+==================================================
+TABLES
+==================================================
+
+A section may contain one result table.
+
+Rules:
+
+- table may be null if the section does not require a table.
+
+- table.title should describe the results represented by the table.
+
+- table.columns contains the variables that belong to that section.
+
+- When a variable already exists in AVAILABLE EXCEL COLUMNS,
+  use the exact Excel column name whenever possible.
+
+- A table may include calculated quantities produced by calculations.
+
+- Calculated output columns may be included even if their cells are
+  currently empty in the uploaded Excel file.
+
+- Do not invent unrelated columns.
+
+- Do not automatically include every Excel column in every section.
+
+- Preserve variable notation as closely as possible.
+
+
+==================================================
 CALCULATIONS
+==================================================
 
 Extract mathematical calculations explicitly required by the instruction.
 
+Calculations are stored globally in `calculations`.
+
 For every calculation:
-- output is the name of the calculated quantity,
-- unit is the output unit if it is explicitly known, otherwise null,
-- expression must represent the mathematical formula as an expression tree.
+
+- output is the name of the calculated quantity.
+
+- expression represents the mathematical formula as an expression tree.
+
+- unit should be determined in this order:
+
+  1. If output exists in COLUMN UNITS and its unit is known,
+     use that unit.
+
+  2. Otherwise, if the instruction explicitly specifies the unit,
+     use that unit.
+
+  3. Otherwise return null.
+
+Do not infer a unit only from general scientific knowledge.
+
+Calculations do NOT need to be returned in execution order.
+The backend determines dependencies and execution order.
+
+A calculation may depend on the output of another calculation.
+
+Do not invent formulas that are not present in the instruction.
+
+When an input variable corresponds to an existing Excel column,
+use its exact name from AVAILABLE EXCEL COLUMNS whenever possible.
+
+
+==================================================
+EXPRESSION TREE
+==================================================
 
 Expression types:
 
-1. variable
+VARIABLE
+
 {
-    "type": "variable",
-    "name": "P"
+  "type": "variable",
+  "name": "P"
 }
 
-2. constant
+CONSTANT
+
 {
-    "type": "constant",
-    "value": 3
+  "type": "constant",
+  "value": 3
 }
 
-3. operation
+OPERATION
+
 {
-    "type": "operation",
-    "operation": "...",
-    "args": [...]
+  "type": "operation",
+  "operation": "...",
+  "args": [...]
 }
 
 Supported operations:
+
 add
 subtract
 multiply
@@ -103,63 +243,292 @@ log
 ln
 abs
 
-Examples:
+
+Operation argument rules:
+
+- add: at least 2 arguments
+- multiply: at least 2 arguments
+- subtract: exactly 2 arguments
+- divide: exactly 2 arguments
+- power: exactly 2 arguments
+- sqrt: exactly 1 argument
+- sin: exactly 1 argument
+- cos: exactly 1 argument
+- tan: exactly 1 argument
+- log: exactly 1 argument
+- ln: exactly 1 argument
+- abs: exactly 1 argument
+
+
+IMPORTANT ABOUT PHYSICAL VARIABLE NAMES
+
+Names such as:
+
+cosφ
+cosφK
+sinφ
+η
+ΔP
+
+may be names of physical quantities or Excel columns.
+
+If such a name appears as an AVAILABLE EXCEL COLUMN or is clearly
+used as a named measured/calculated quantity, represent it as a variable.
+
+Example:
+
+cosφK = PK / (Uk * I)
+
+Here `cosφK` is the output variable.
+
+Do NOT interpret `cosφK` as a cosine operation.
+
+Use the `cos` operation only when the instruction explicitly describes
+the cosine of an argument, for example:
+
+cos(φ)
+
+
+Example calculation:
 
 PK = P - Pap
 
 becomes:
 
 {
-    "output": "PK",
-    "unit": "W",
-    "expression": {
-        "type": "operation",
-        "operation": "subtract",
-        "args": [
-            {
-                "type": "variable",
-                "name": "P"
-            },
-            {
-                "type": "variable",
-                "name": "Pap"
-            }
-        ]
-    }
+  "output": "PK",
+  "unit": null,
+  "expression": {
+    "type": "operation",
+    "operation": "subtract",
+    "args": [
+      {
+        "type": "variable",
+        "name": "P"
+      },
+      {
+        "type": "variable",
+        "name": "Pap"
+      }
+    ]
+  }
 }
 
-Do not invent formulas that are not present in the instruction.
 
-Preserve variable names as closely as possible to the notation used in the instruction.
+==================================================
+CALCULATIONS IN SECTIONS
+==================================================
 
-Calculations do not need to be returned in execution order.
-The backend determines calculation dependencies and execution order.
+Sections do not duplicate CalculationSpecification objects.
 
-A chart may use a variable that is produced by a calculation.
+Instead:
+
+- calculation_outputs contains the output names of calculations
+  belonging to the section.
+
+- Every value in calculation_outputs must exactly match an `output`
+  from the global calculations list.
+
+- Preserve the logical presentation order when possible.
+
+- A calculation may depend on another calculation even if the backend
+  later executes them in a different order.
+
+
+==================================================
+CHARTS
+==================================================
+
+Extract only charts required by the instruction.
+
+A characteristic written as:
+
+U(I)
+
+means:
+
+x = "I"
+y = "U"
+
+A characteristic written as:
+
+P(I)
+
+means:
+
+x = "I"
+y = "P"
+
+Rules:
+
+- x and y contain only variable names.
+
+Correct:
+
+x = "I"
+y = "Uk"
+
+Incorrect:
+
+y = "Uk(I)"
+
+- When x or y corresponds to an AVAILABLE EXCEL COLUMN,
+  use the exact Excel column name whenever possible.
+
+- A chart may use a variable produced by a calculation.
+
+- Do not invent additional charts.
+
+
+==================================================
+CHART GROUPING
+==================================================
+
+If multiple characteristics are explicitly required on the SAME chart,
+give them the same figure_id.
+
+Example:
+
+"Na jednym wykresie przedstawić Uk(I), P(I) oraz cosφK(I)"
+
+becomes:
+
+Uk(I)     figure_id = 1
+P(I)      figure_id = 1
+cosφK(I)  figure_id = 1
+
+
+If characteristics are required on separate charts,
+use different figure_id values.
+
+figure_id values should start from 1 and be assigned sequentially.
+
+Do not reuse the same figure_id for charts that the instruction says
+must be separate.
+
+
+==================================================
+CHARTS IN SECTIONS
+==================================================
+
+Sections do not duplicate chart definitions.
+
+Instead:
+
+- chart_figure_ids contains figure_id values of charts belonging
+  to the section.
+
+- Every figure_id in chart_figure_ids must correspond to a chart
+  from the global charts list.
+
+- A chart should normally belong to the measurement/result section
+  whose data it represents.
+
+
+==================================================
+DESCRIPTION AND ANALYSIS
+==================================================
+
+For measurement/result sections:
+
+- include_description should normally be true.
+
+- include_analysis should normally be true when the section contains
+  measured results, calculated results or charts that require interpretation.
+
+These fields only indicate that text should later be generated.
+
+Do NOT write the actual report description or analysis in
+ReportSpecification.
+
+
+==================================================
+SOURCE SECTION
+==================================================
+
+source_section is a legacy/global reference to a source measurement section.
+
+If the instruction explicitly references one source section,
+for example "punkt 3", return that reference.
+
+If there is no single explicit source section, return null.
+
+Do not use source_section instead of ReportSection objects.
+
+
+==================================================
+CONSISTENCY RULES
+==================================================
+
+Before returning the result, ensure that:
+
+- every calculation_outputs value exists in calculations.output,
+
+- every chart_figure_ids value exists in charts.figure_id,
+
+- calculated table columns correspond to calculation outputs,
+
+- existing measurement variables use AVAILABLE EXCEL COLUMNS
+  whenever possible,
+
+- figure_id values are consistent,
+
+- section_id values start at 1 and are sequential,
+
+- no formula, chart or section has been invented without support
+  from the instruction or Excel metadata.
 """
 
 MODEL = "gpt-5-mini"
 
-def parse_report_instruction(instruction: str,)-> ReportSpecification:
+def parse_report_instruction(
+    instruction: str,
+    available_columns: list[str] | None = None,
+    units: dict[str, str | None] | None = None,
+) -> ReportSpecification:
+
+    columns_json = json.dumps(
+        available_columns or [],
+        ensure_ascii=False
+    )
+
+    units_json = json.dumps(
+        units or {},
+        ensure_ascii=False
+    )
+
+    user_input = f"""
+REPORT INSTRUCTION:
+
+{instruction}
+
+AVAILABLE EXCEL COLUMNS:
+{columns_json}
+
+COLUMN UNITS:
+{units_json}
+"""
+
     response = client.responses.parse(
-        model=MODEL, 
+        model=MODEL,
         input=[
             {
-                "role": "system",
+                "role": "developer",
                 "content": SYSTEM_PROMPT,
             },
             {
                 "role": "user",
-                "content": instruction,
+                "content": user_input,
             },
         ],
         text_format=ReportSpecification,
-            
-                                      )
-    
-    specification = response.output_parsed
-    
-    if specification is None:
-        raise RuntimeError("Nie udało utworzyć sie specyfikacji sprawozdania")
-    
-    return specification
+    )
+
+    result = response.output_parsed
+
+    if result is None:
+        raise ValueError(
+            "Unable to parse report instruction."
+        )
+
+    return result

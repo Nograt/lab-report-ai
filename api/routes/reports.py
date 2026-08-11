@@ -36,9 +36,9 @@ router = APIRouter(prefix="/reports", tags=["reports"])
 @router.post("/analyze")
 async def analyze_report(instruction: Annotated[str, Form()], measurements: Annotated[UploadFile, File()]):
    
-    specification = parse_report_instruction(instruction
-                                             )
     df, units = read_meansurements(measurements.file)
+
+    specification = parse_report_instruction(instruction=instruction,available_columns=df.columns.tolist(),units=units,)
     
     try:
         completed_df = execute_calculations(df=df,calculations=specification.calculations,)
