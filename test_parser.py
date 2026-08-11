@@ -1,12 +1,12 @@
-from app.services.instruction_parser import (
-    parse_report_instruction,
-)
+from app.services.instruction_parser import parse_report_instruction
 
 
 instruction = """
-Na podstawie pomiarów z punktu 3
-wykonać na jednym wykresie charakterystyki
-Uk(I), P(I) oraz cosφK(I).
+Obliczyć moc PK według zależności:
+
+PK = P - Pap
+
+Następnie wykonać wykres PK(I).
 """
 
 
@@ -14,5 +14,9 @@ result = parse_report_instruction(
     instruction
 )
 
-print(result)
-print(result.model_dump())
+
+print(
+    result.model_dump_json(
+        indent=2
+    )
+)

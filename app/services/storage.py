@@ -3,6 +3,7 @@ from uuid import uuid4
 import json
 import shutil
 from typing import BinaryIO
+import pandas as pd
 
 
 
@@ -45,15 +46,16 @@ def save_report_state(
 ) -> Path:
 
     state = {
-        "report_id": report_id,
-        "specification": specification.model_dump(),
-        "charts": [
-            chart.model_dump()
-            for chart in charts
-        ],
-        "units": units,
-        "measurements_file": "measurements.xlsx",
-    }
+    "report_id": report_id,
+    "specification": specification.model_dump(),
+    "charts": [
+        chart.model_dump()
+        for chart in charts
+    ],
+    "units": units,
+    "measurements_file": "measurements.xlsx",
+    "completed_measurements_file":"completed_measurements.xlsx",
+}
 
     file_path = report_dir / "report.json"
 
@@ -120,5 +122,21 @@ def save_report_state_data(
             ensure_ascii=False,
             indent=4
         )
+
+    return file_path
+
+def save_completed_measurements(
+    df: pd.DataFrame,
+    report_dir: Path
+) -> Path:
+
+    file_path = (
+        report_dir / "completed_measurements.xlsx"
+    )
+
+    df.to_excel(
+        file_path,
+        index=False
+    )
 
     return file_path

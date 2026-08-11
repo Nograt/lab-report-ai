@@ -1,18 +1,21 @@
-from typing import Annotated, Literal, Union
+from typing import Literal, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
+
 
 class VariableExpression(BaseModel):
     type: Literal["variable"]
     name: str
-    
+
+
 class ConstantExpression(BaseModel):
     type: Literal["constant"]
-    value: float
-    
+    value: int | float
+
+
 class OperationExpression(BaseModel):
     type: Literal["operation"]
-    
+
     operation: Literal[
         "add",
         "subtract",
@@ -27,18 +30,16 @@ class OperationExpression(BaseModel):
         "ln",
         "abs",
     ]
-    
+
     args: list["Expression"]
-    
-    
-Expression = Annotated[
-    Union[
-        VariableExpression,
-        ConstantExpression,
-        OperationExpression,
-    ],
-    Field(discriminator="type"),
+
+
+Expression = Union[
+    VariableExpression,
+    ConstantExpression,
+    OperationExpression,
 ]
+
 
 OperationExpression.model_rebuild(
     _types_namespace={
@@ -49,7 +50,5 @@ OperationExpression.model_rebuild(
 
 class CalculationSpecification(BaseModel):
     output: str
-    unit: str | None = None
+    unit: str | None
     expression: Expression
-
-

@@ -58,6 +58,84 @@ If no source section is specified, return null.
 
 8. Preserve variable symbols as closely as possible
    to the notation used in the instruction.
+   
+CALCULATIONS
+
+Extract mathematical calculations explicitly required by the instruction.
+
+For every calculation:
+- output is the name of the calculated quantity,
+- unit is the output unit if it is explicitly known, otherwise null,
+- expression must represent the mathematical formula as an expression tree.
+
+Expression types:
+
+1. variable
+{
+    "type": "variable",
+    "name": "P"
+}
+
+2. constant
+{
+    "type": "constant",
+    "value": 3
+}
+
+3. operation
+{
+    "type": "operation",
+    "operation": "...",
+    "args": [...]
+}
+
+Supported operations:
+add
+subtract
+multiply
+divide
+power
+sqrt
+sin
+cos
+tan
+log
+ln
+abs
+
+Examples:
+
+PK = P - Pap
+
+becomes:
+
+{
+    "output": "PK",
+    "unit": "W",
+    "expression": {
+        "type": "operation",
+        "operation": "subtract",
+        "args": [
+            {
+                "type": "variable",
+                "name": "P"
+            },
+            {
+                "type": "variable",
+                "name": "Pap"
+            }
+        ]
+    }
+}
+
+Do not invent formulas that are not present in the instruction.
+
+Preserve variable names as closely as possible to the notation used in the instruction.
+
+Calculations do not need to be returned in execution order.
+The backend determines calculation dependencies and execution order.
+
+A chart may use a variable that is produced by a calculation.
 """
 
 MODEL = "gpt-5-mini"

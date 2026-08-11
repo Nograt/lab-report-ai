@@ -15,8 +15,11 @@ from app.services.storage import (
     load_report_state,
     get_report_dir,
     save_report_state_data,
+    save_completed_measurements,
 )
 from app.schemas.chart import UpdateChartsRequest
+from app.services.calculation_engine import execute_calculations
+
 
 
 
@@ -25,24 +28,40 @@ router = APIRouter(prefix="/reports", tags=["reports"])
 @router.post("/analyze")
 async def analyze_report(instruction: Annotated[str, Form()], measurements: Annotated[UploadFile, File()]):
    
-    specification = parse_report_instruction(instruction)
-    
-    
+    specification = parse_report_instruction(instruction
+                                             )
     df, units = read_meansurements(measurements.file)
     
-    
     try:
-        charts = create_chart_specifications(specification,df)
+        completed_df = execute_calculations(df=df,calculations=specification.calculations,)
+
     except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error))
-    
+        raise HTTPException(
+        status_code=422,
+        detail=str(error)
+    )
+        
+    for calculation in specification.calculations:
+        if calculation.output not in units:
+            units[calculation.output] = calculation.unit
+        
+        elif units[calculation.output] is None:
+            units[calculation.output] = calculation.unit
+            
+    try:
+        charts = create_chart_specifications(specification,completed_df)
+
+    except ValueError as error:
+        raise HTTPException(status_code=422,detail=str(error))
     
     report_id, report_dir = create_report_workspace()
     
     save_measurements( measurements.file, report_dir)
     
+    save_completed_measurements(completed_df,report_dir)
     
-    generated_files = generate_chart(df=df, units=units,charts=charts,output_dir= report_dir/ "charts")
+    
+    generated_files = generate_chart(df=completed_df, units=units,charts=charts,output_dir= report_dir/ "charts")
     
     print("REPORT ID:", report_id)
     print("REPORT DIR:", report_dir.resolve())
@@ -92,7 +111,7 @@ def update_report_charts(
         )
 
     measurements_path = (
-        report_dir / state["measurements_file"]
+        report_dir / state["completed_measurements_file"]
     )
 
     df, units = read_meansurements(
