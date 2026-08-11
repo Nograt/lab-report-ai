@@ -1,7 +1,8 @@
 from app.services.excel_reader import read_meansurements
 from app.services.result_analyzer import analyze_section
-from app.services.report_text_generator import generate_section_text
+from app.services.report_text_generator import generate_report_text
 
+from app.schemas.report import ReportSpecification
 from app.schemas.section import ReportSection
 from app.schemas.chart import ChartSpecification
 
@@ -122,27 +123,63 @@ oraz moc:
 PK = P - Pap
 
 Następnie wykonać dwa osobne wykresy:
+
 1. PK(I)
 2. cosφK(I)
 
 W tej części sprawozdania należy krótko opisać wykonane pomiary
 oraz przeanalizować otrzymane wyniki i wykresy.
+
+Sprawozdanie powinno zawierać:
+- cel ćwiczenia,
+- opis badanego obwodu / stanowiska,
+- opracowanie wyników,
+- wnioski.
 """
 
 
 # ============================================================
-# 6. Generowanie tekstu przez LLM
+# 6. Specyfikacja całego raportu
 # ============================================================
 
-text = generate_section_text(
-    section=section,
-    analysis=analysis,
+specification = ReportSpecification.model_validate(
+    {
+        "report_title": "Badanie silnika uniwersalnego",
+        "source_section": None,
+
+        "include_purpose": True,
+        "include_theory": False,
+        "include_setup": True,
+        "include_conclusions": True,
+
+        # W tym teście interesuje nas warstwa tekstowa,
+        # dlatego nie musimy ponownie budować pełnych
+        # CalculationSpecification i ParsedChartSpecification.
+        "calculations": [],
+        "charts": [],
+
+        "sections": [
+            section.model_dump()
+        ],
+    }
+)
+
+
+# ============================================================
+# 7. Generowanie całej treści raportu przez LLM
+# ============================================================
+
+report_text = generate_report_text(
+    specification=specification,
+    analyses=[
+        analysis
+    ],
     instruction=instruction,
 )
 
 
 # ============================================================
-# 7. Wynik
+# 8. Wyniki
 # ============================================================
 
 print("\n=== ANALIZA PYTHONA ===\n")
@@ -154,10 +191,10 @@ print(
 )
 
 
-print("\n=== TEKST WYGENEROWANY PRZEZ LLM ===\n")
+print("\n=== TEKST CAŁEGO SPRAWOZDANIA ===\n")
 
 print(
-    text.model_dump_json(
+    report_text.model_dump_json(
         indent=2
     )
 )
