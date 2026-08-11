@@ -1,9 +1,8 @@
-import os
-import json
-from openai import OpenAI
-from app.schemas.report import ReportSpecification
 
-client = OpenAI()
+import json
+from app.schemas.report import ReportSpecification
+from app.core.openai_client import client
+
 
 SYSTEM_PROMPT = """
 You analyze laboratory report instructions.
