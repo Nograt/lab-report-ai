@@ -248,7 +248,35 @@ def expression_to_latex(
     raise ValueError(
         f"Unsupported operation: {operation}"
     )
+ 
+ 
+def get_expression_variables(
+    expression: Expression,
+) -> set[str]:
+
+    if isinstance(expression, VariableExpression):
+        return {
+            expression.name
+        }
+
+    if isinstance(expression, ConstantExpression):
+        return set()
+
+    if isinstance(expression, OperationExpression):
+        variables = set()
+
+        for arg in expression.args:
+            variables.update(
+                get_expression_variables(arg)
+            )
+
+        return variables
+
+    raise ValueError(
+        "Unsupported expression type."
+    )
     
+       
 def create_example_calculations(
     df: pd.DataFrame,
     calculations: list[CalculationSpecification],
@@ -303,10 +331,9 @@ def create_example_calculations(
             decimal_places=decimal_places,
         )
 
-        result_number = format_number(
-            result,
-            decimal_places
-        )
+        result_number = format_result_number(
+    result
+)
 
         unit = units.get(
             calculation.output
@@ -336,7 +363,45 @@ def create_example_calculations(
                 "result_latex": result_latex,
                 "result": float(result),
                 "unit": unit,
+                "expression": calculation.expression.model_dump(),
+                "variables": {
+                    variable_name: float(row[variable_name])
+                    for variable_name in get_expression_variables(
+                        calculation.expression
+                        )
+                        },
             }
         )
 
     return examples
+def format_result_number(
+    value: float | int,
+) -> str:
+
+    value = float(value)
+
+
+    if value == 0:
+        return "0"
+
+    absolute = abs(value)
+
+
+    if absolute < 0.01:
+        formatted = f"{value:.6f}"
+
+    elif absolute < 1:
+        formatted = f"{value:.4f}"
+
+
+    elif absolute < 100:
+        formatted = f"{value:.3f}"
+
+    else:
+        formatted = f"{value:.2f}"
+
+    return (
+        formatted
+        .rstrip("0")
+        .rstrip(".")
+    )

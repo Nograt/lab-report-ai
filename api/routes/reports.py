@@ -8,6 +8,12 @@ from app.services.chart_generator import (
     generate_chart,
     match_column_name,
 )
+from fastapi.responses import FileResponse
+
+from app.services.docx_generator import (
+    generate_report_docx,
+)
+
 from app.services.storage import (
     create_report_workspace,
     save_measurements,
@@ -80,6 +86,66 @@ from app.services.instruction_parser import (
 from app.schemas.chart import ChartSpecification
 
 router = APIRouter(prefix="/reports", tags=["reports"])
+
+@router.get("/{report_id}/docx")
+def get_report_docx(
+    report_id: str,
+):
+    try:
+        state = load_report_state(
+            report_id
+        )
+
+        report_dir = get_report_dir(
+            report_id
+        )
+
+    except FileNotFoundError as error:
+        raise HTTPException(
+            status_code=404,
+            detail=str(error),
+        )
+
+    completed_file = (
+        report_dir
+        / state["completed_measurements_file"]
+    )
+
+    if not completed_file.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "Completed measurements file "
+                "does not exist."
+            ),
+        )
+
+    try:
+        tables = read_completed_measurement_tables(
+            file=str(completed_file),
+            metadata=state["measurement_tables"],
+        )
+
+        output_path = generate_report_docx(
+            report_dir=report_dir,
+            state=state,
+            tables=tables,
+        )
+
+    except ValueError as error:
+        raise HTTPException(
+            status_code=422,
+            detail=str(error),
+        )
+
+    return FileResponse(
+        path=output_path,
+        filename="sprawozdanie.docx",
+        media_type=(
+            "application/vnd.openxmlformats-"
+            "officedocument.wordprocessingml.document"
+        ),
+    )
 
 @router.post("/analyze")
 async def analyze_report(
