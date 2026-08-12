@@ -44,7 +44,10 @@ They are controlled by:
 Rules:
 
 - report_title should contain only the overall laboratory exercise title.
-
+- If the instruction contains "Temat ćwiczenia: X",
+  report_title must contain only X.
+- Do not include labels such as "Temat ćwiczenia:" in report_title.
+- Remove trailing punctuation from report_title.
 - If the instruction explicitly provides a title such as
   "Temat ćwiczenia: ...", preserve that title as closely as possible.
 
@@ -136,6 +139,28 @@ Rules:
 - table_id identifies the measurement table used by that section.
 - section_id and table_id are different concepts and do not need
   to have the same value.
+  - calculation_outputs contains calculation output names belonging
+  to the same table_id as the section.
+  
+  CALCULATION TABLE ASSIGNMENT
+
+Every CalculationSpecification must contain table_id.
+
+Rules:
+
+- table_id must match one of the provided measurement tables.
+- Assign the calculation to the table containing the variables
+  used by its expression.
+- The calculation must belong to the same measurement table
+  as the ReportSection that references its output.
+- Do not invent table_id values.
+- Variables used by the calculation must exist in the referenced
+  measurement table or be outputs of other calculations assigned
+  to the same table.
+- Calculations from different measurement tables must never depend
+  on each other.
+- The same output name may exist in different tables.
+  In that case, table_id distinguishes the calculations.
 
 ==================================================
 TABLES

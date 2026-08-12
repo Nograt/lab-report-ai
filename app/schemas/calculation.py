@@ -49,6 +49,7 @@ OperationExpression.model_rebuild(
 
 
 class CalculationSpecification(BaseModel):
+    table_id: int
     output: str
     unit: str | None
     expression: Expression
