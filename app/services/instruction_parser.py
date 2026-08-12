@@ -3,7 +3,7 @@ import json
 from app.schemas.report import ReportSpecification
 from app.core.openai_client import client
 from app.schemas.measurement import MeasurementTableInfo
-
+from app.services.specification_validator import validate_report_specification
 
 SYSTEM_PROMPT = """
 You analyze laboratory report instructions.
@@ -535,7 +535,84 @@ Rules:
   measurement table referenced by that section.
 """
 
-MODEL = "gpt-5-mini"
+MODEL = "gpt-5.6"
+
+def repair_report_specification(
+    specification: ReportSpecification,
+    validation_error: str,
+    instruction: str,
+    measurement_tables: list[MeasurementTableInfo],
+) -> ReportSpecification:
+
+    tables_context = "\n\n".join(
+        [
+            f"""
+TABLE ID: {table.table_id}
+TITLE: {table.title}
+SHEET: {table.sheet_name}
+COLUMNS: {table.columns}
+UNITS: {table.units}
+""".strip()
+            for table in measurement_tables
+        ]
+    )
+
+    repair_input = f"""
+The previously generated ReportSpecification failed backend validation.
+
+VALIDATION ERROR:
+
+{validation_error}
+
+ORIGINAL LABORATORY INSTRUCTION:
+
+{instruction}
+
+AVAILABLE MEASUREMENT TABLES:
+
+{tables_context}
+
+PREVIOUS REPORT SPECIFICATION:
+
+{specification.model_dump_json(indent=2)}
+
+Correct the ReportSpecification.
+
+Rules:
+
+- Fix the validation error.
+- Preserve the meaning and requirements of the laboratory instruction.
+- Do not remove required charts merely to avoid the validation error.
+- Do not invent new measurements, tables, calculations or variables.
+- Keep table assignments consistent with available measurement tables.
+- Figure IDs must be globally unique.
+- Every figure must belong to exactly one report section.
+- Return the complete corrected ReportSpecification.
+"""
+
+    response = client.responses.parse(
+        model=MODEL,
+        input=[
+            {
+                "role": "developer",
+                "content": SYSTEM_PROMPT,
+            },
+            {
+                "role": "user",
+                "content": repair_input,
+            },
+        ],
+        text_format=ReportSpecification,
+    )
+
+    result = response.output_parsed
+
+    if result is None:
+        raise ValueError(
+            "Unable to repair report specification."
+        )
+
+    return result
 
 def parse_report_instruction(
     instruction: str,
@@ -589,3 +666,74 @@ def parse_report_instruction(
         )
 
     return result
+  
+def parse_report_instruction_with_repair(
+    instruction: str,
+    measurement_tables: list[MeasurementTableInfo],
+) -> ReportSpecification:
+
+
+    specification = parse_report_instruction(
+        instruction=instruction,
+        measurement_tables=measurement_tables,
+    )
+
+    try:
+        validate_report_specification(
+            specification=specification,
+            measurement_tables=measurement_tables,
+        )
+
+        print(
+            "[SPEC VALIDATION] Specification valid."
+        )
+
+        return specification
+
+    except ValueError as error:
+        first_error = str(error)
+
+        print(
+            "[SPEC VALIDATION] Validation failed:"
+        )
+        print(first_error)
+
+
+    print(
+        "[SPEC REPAIR] Starting automatic repair..."
+    )
+
+    repaired_specification = repair_report_specification(
+        specification=specification,
+        validation_error=first_error,
+        instruction=instruction,
+        measurement_tables=measurement_tables,
+    )
+
+
+    try:
+        validate_report_specification(
+            specification=repaired_specification,
+            measurement_tables=measurement_tables,
+        )
+
+    except ValueError as error:
+        second_error = str(error)
+
+        print(
+            "[SPEC REPAIR] Repair failed:"
+        )
+        print(second_error)
+
+        raise ValueError(
+            "Report specification remained invalid "
+            "after automatic repair. "
+            f"First error: {first_error}. "
+            f"Repair error: {second_error}"
+        )
+
+    print(
+        "[SPEC REPAIR] Specification repaired successfully."
+    )
+
+    return repaired_specification

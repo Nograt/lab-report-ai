@@ -316,3 +316,89 @@ def get_measurement_table(
         f"Measurement table with table_id={table_id} does not exist."
     )
   
+def read_meansurements(
+    file: str | BinaryIO,
+) -> tuple[pd.DataFrame, dict[str, str | None]]:
+
+    tables = read_measurement_tables(file)
+
+    first_table = tables[0]
+
+    return (
+        first_table.dataframe.copy(),
+        first_table.units.copy(),
+    )
+    
+    
+def read_completed_measurement_tables(
+    file: str | BinaryIO,
+    metadata: list[dict],
+) -> list[MeasurementTableData]:
+
+    if hasattr(file, "seek"):
+        file.seek(0)
+
+    excel_file = pd.ExcelFile(file)
+
+    tables: list[MeasurementTableData] = []
+
+    for table_metadata in metadata:
+
+        table_id = table_metadata["table_id"]
+        sheet_name = table_metadata["sheet_name"]
+
+        if sheet_name not in excel_file.sheet_names:
+            raise ValueError(
+                f"Sheet '{sheet_name}' for table_id={table_id} "
+                "does not exist in completed measurements workbook."
+            )
+
+        df = pd.read_excel(
+            excel_file,
+            sheet_name=sheet_name,
+        )
+
+        df = df.dropna(
+            axis=0,
+            how="all",
+        )
+
+        df = df.dropna(
+            axis=1,
+            how="all",
+        )
+
+        df = convert_numeric_columns(df)
+
+        expected_columns = table_metadata.get(
+            "columns",
+            [],
+        )
+
+        if expected_columns:
+            missing_columns = [
+                column
+                for column in expected_columns
+                if column not in df.columns
+            ]
+
+            if missing_columns:
+                raise ValueError(
+                    f"Completed table_id={table_id} is missing columns: "
+                    f"{missing_columns}"
+                )
+
+        tables.append(
+            MeasurementTableData(
+                table_id=table_id,
+                title=table_metadata.get("title"),
+                sheet_name=sheet_name,
+                dataframe=df,
+                units=table_metadata.get(
+                    "units",
+                    {},
+                ),
+            )
+        )
+
+    return tables   

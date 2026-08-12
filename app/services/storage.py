@@ -4,6 +4,7 @@ import json
 import shutil
 from typing import BinaryIO
 import pandas as pd
+from app.services.excel_reader import MeasurementTableData
 
 
 
@@ -45,7 +46,8 @@ def save_report_state(
     units,
     example_calculations,
     section_analyses,
-    report_text,    
+    report_text,
+    measurement_tables,
 ) -> Path:
 
     state = {
@@ -73,6 +75,16 @@ def save_report_state(
 ],
 
 "report_text": report_text.model_dump(),
+"measurement_tables": [
+    {
+        "table_id": table.table_id,
+        "title": table.title,
+        "sheet_name": table.sheet_name,
+        "columns": table.dataframe.columns.tolist(),
+        "units": table.units,
+    }
+    for table in measurement_tables
+],
 }
 
     file_path = report_dir / "report.json"
@@ -124,6 +136,7 @@ def get_report_dir(report_id: str) -> Path:
 def save_report_state_data(
     report_id: str,
     state: dict
+    
 ) -> Path:
 
     report_dir = get_report_dir(report_id)
@@ -156,5 +169,30 @@ def save_completed_measurements(
         file_path,
         index=False
     )
+
+    return file_path
+
+def save_completed_measurement_tables(
+    tables: list[MeasurementTableData],
+    report_dir: Path,
+) -> Path:
+
+    file_path = (
+        report_dir
+        / "completed_measurements.xlsx"
+    )
+
+    with pd.ExcelWriter(
+        file_path,
+        engine="openpyxl",
+    ) as writer:
+
+        for table in tables:
+
+            table.dataframe.to_excel(
+                writer,
+                sheet_name=table.sheet_name,
+                index=False,
+            )
 
     return file_path
