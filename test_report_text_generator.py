@@ -36,6 +36,7 @@ units = {
 section = ReportSection.model_validate(
     {
         "section_id": 1,
+        "table_id": 1,
         "title": "Pomiary charakterystyk w stanie zwarcia",
 
         "table": {

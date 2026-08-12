@@ -2,6 +2,7 @@
 import json
 from app.schemas.report import ReportSpecification
 from app.core.openai_client import client
+from app.schemas.measurement import MeasurementTableInfo
 
 
 SYSTEM_PROMPT = """
@@ -131,7 +132,10 @@ Rules:
   result section describing that group of work.
 
 - Do not merge clearly separate measurement stages into one section.
-
+- section_id identifies the report section.
+- table_id identifies the measurement table used by that section.
+- section_id and table_id are different concepts and do not need
+  to have the same value.
 
 ==================================================
 TABLES
@@ -476,37 +480,66 @@ Before returning the result, ensure that:
 
 - no formula, chart or section has been invented without support
   from the instruction or Excel metadata.
+  
+MEASUREMENT TABLES
+
+The backend provides a list of available measurement tables.
+
+Each table has:
+- table_id,
+- title,
+- sheet_name,
+- columns,
+- units.
+
+Every ReportSection must reference exactly one measurement table
+using table_id.
+
+Rules:
+
+- table_id must match one of the provided measurement tables.
+- Select the table whose columns and meaning best match the section.
+- Do not invent table_id values.
+- Do not assign the same table to multiple unrelated measurement stages
+  unless the instruction clearly indicates that they use the same data.
+- The columns selected in ReportSection.table.columns must exist
+  in the measurement table referenced by table_id.
+- Calculations for a section must use variables available in its
+  measurement table or outputs calculated from those variables.
+- Charts belonging to a section must use data available in the
+  measurement table referenced by that section.
 """
 
 MODEL = "gpt-5-mini"
 
 def parse_report_instruction(
     instruction: str,
-    available_columns: list[str] | None = None,
-    units: dict[str, str | None] | None = None,
+    measurement_tables: list[MeasurementTableInfo]
 ) -> ReportSpecification:
 
-    columns_json = json.dumps(
-        available_columns or [],
-        ensure_ascii=False
-    )
+    tables_context = "\n\n".join(
+    [
+        f"""
+          TABLE ID: {table.table_id}
+          TITLE: {table.title}
+          SHEET: {table.sheet_name}
+          COLUMNS: {table.columns}
+          UNITS: {table.units}
+          """.strip()
+                  for table in measurement_tables
+              ]
+          )
 
-    units_json = json.dumps(
-        units or {},
-        ensure_ascii=False
-    )
 
     user_input = f"""
-REPORT INSTRUCTION:
+      REPORT INSTRUCTION:
 
-{instruction}
+      {instruction}
 
-AVAILABLE EXCEL COLUMNS:
-{columns_json}
+      AVAILABLE MEASUREMENT TABLES:
 
-COLUMN UNITS:
-{units_json}
-"""
+      {tables_context}
+      """
 
     response = client.responses.parse(
         model=MODEL,

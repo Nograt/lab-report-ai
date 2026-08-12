@@ -12,6 +12,8 @@ class TableSpecification(BaseModel):
 class ReportSection(BaseModel):
     section_id: int
     title: str
+    
+    table_id: int
 
     table: TableSpecification | None = None
 
