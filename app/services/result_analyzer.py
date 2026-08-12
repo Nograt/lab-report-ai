@@ -3,13 +3,42 @@ import pandas as pd
 
 from app.schemas.section import ReportSection
 from app.schemas.chart import ChartSpecification
-
+from app.schemas.report import ReportSpecification
 from app.schemas.analysis import (
     ColumnAnalysis,
     ChartRelationshipAnalysis,
     SectionAnalysis,
 )
+from app.services.excel_reader import (
+    MeasurementTableData,
+    get_measurement_table,
+)
 
+def analyze_report_sections(
+    specification: ReportSpecification,
+    tables: list[MeasurementTableData],
+    charts: list[ChartSpecification],
+) -> list[SectionAnalysis]:
+
+    analyses: list[SectionAnalysis] = []
+
+    for section in specification.sections:
+
+        table = get_measurement_table(
+            tables=tables,
+            table_id=section.table_id,
+        )
+
+        analysis = analyze_section(
+            df=table.dataframe,
+            section=section,
+            units=table.units,
+            charts=charts,
+        )
+
+        analyses.append(analysis)
+
+    return analyses
 
 def analyze_section(
     df: pd.DataFrame,

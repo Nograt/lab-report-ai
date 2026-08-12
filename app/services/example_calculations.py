@@ -1,5 +1,4 @@
 import pandas as pd
-
 from app.schemas.calculation import (
     Expression,
     VariableExpression,
@@ -7,11 +6,62 @@ from app.schemas.calculation import (
     OperationExpression,
     CalculationSpecification,
 )
-
+from app.schemas.report import ReportSpecification
 from app.services.calculation_engine import (
     resolve_calculation_order,
 )
+from app.services.excel_reader import (
+    MeasurementTableData,
+    get_measurement_table,
+)
+def create_multi_table_example_calculations(
+    specification: ReportSpecification,
+    tables: list[MeasurementTableData],
+    row_index: int = 0,
+) -> list[dict]:
 
+    results = []
+
+    for section in specification.sections:
+
+        if not section.calculation_outputs:
+            continue
+
+        table = get_measurement_table(
+            tables=tables,
+            table_id=section.table_id,
+        )
+
+        section_calculations = [
+            calculation
+            for calculation in specification.calculations
+            if (
+                calculation.table_id == section.table_id
+                and calculation.output
+                in section.calculation_outputs
+            )
+        ]
+
+        if not section_calculations:
+            continue
+
+        examples = create_example_calculations(
+            df=table.dataframe,
+            calculations=section_calculations,
+            units=table.units,
+            row_index=row_index,
+        )
+
+        results.append(
+            {
+                "section_id": section.section_id,
+                "table_id": section.table_id,
+                "row_index": row_index,
+                "calculations": examples,
+            }
+        )
+
+    return results
 
 def format_number(
     value,

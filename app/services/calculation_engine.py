@@ -10,6 +10,49 @@ from app.schemas.calculation import (
     OperationExpression,
 )
 
+from app.services.excel_reader import MeasurementTableData
+
+def execute_table_calculations(
+    tables: list[MeasurementTableData],
+    calculations: list[CalculationSpecification],
+) -> list[MeasurementTableData]:
+
+    completed_tables = []
+
+    for table in tables:
+
+        table_calculations = [
+            calculation
+            for calculation in calculations
+            if calculation.table_id == table.table_id
+        ]
+
+        completed_df = execute_calculations(
+            df=table.dataframe,
+            calculations=table_calculations,
+        )
+
+        completed_units = table.units.copy()
+
+        for calculation in table_calculations:
+
+            if calculation.output not in completed_units:
+                completed_units[calculation.output] = calculation.unit
+
+            elif completed_units[calculation.output] is None:
+                completed_units[calculation.output] = calculation.unit
+
+        completed_tables.append(
+            MeasurementTableData(
+                table_id=table.table_id,
+                title=table.title,
+                sheet_name=table.sheet_name,
+                dataframe=completed_df,
+                units=completed_units,
+            )
+        )
+
+    return completed_tables
 
 
 def expression_to_sympy(expression: Expression) -> sp.Expr:

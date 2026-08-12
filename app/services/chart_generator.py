@@ -1,10 +1,97 @@
 import matplotlib.pyplot as plt
 from collections import defaultdict
-from app.services.excel_reader import read_meansurements, get_chart_data
+from app.services.excel_reader import (
+    MeasurementTableData,
+    get_measurement_table,
+    get_chart_data
+)
 from app.services.instruction_parser import parse_report_instruction
 from matplotlib.ticker import MaxNLocator
 from app.schemas.chart import ChartSpecification
 from pathlib import Path
+from app.schemas.report import ReportSpecification
+
+def create_multi_table_chart_specifications(
+    specification: ReportSpecification,
+    tables: list[MeasurementTableData],
+) -> list[ChartSpecification]:
+
+    charts: list[ChartSpecification] = []
+
+    used_figure_ids: set[int] = set()
+
+    for section in specification.sections:
+
+        table = get_measurement_table(
+            tables=tables,
+            table_id=section.table_id,
+        )
+
+        available_columns = set(
+            table.dataframe.columns
+        )
+
+        section_chart_ids = set(
+            section.chart_figure_ids
+        )
+
+        for parsed_chart in specification.charts:
+
+            if parsed_chart.figure_id not in section_chart_ids:
+                continue
+
+            if parsed_chart.figure_id in used_figure_ids:
+                raise ValueError(
+                    f"Chart figure_id={parsed_chart.figure_id} "
+                    "is assigned to more than one report section."
+                )
+
+            if parsed_chart.x not in available_columns:
+                raise ValueError(
+                    f"Chart figure_id={parsed_chart.figure_id} "
+                    f"uses x column '{parsed_chart.x}', "
+                    f"but table_id={table.table_id} "
+                    f"contains columns: "
+                    f"{table.dataframe.columns.tolist()}"
+                )
+
+            if parsed_chart.y not in available_columns:
+                raise ValueError(
+                    f"Chart figure_id={parsed_chart.figure_id} "
+                    f"uses y column '{parsed_chart.y}', "
+                    f"but table_id={table.table_id} "
+                    f"contains columns: "
+                    f"{table.dataframe.columns.tolist()}"
+                )
+
+            charts.append(
+                ChartSpecification(
+                    figure_id=parsed_chart.figure_id,
+                    x=parsed_chart.x,
+                    y=parsed_chart.y,
+                )
+            )
+
+            used_figure_ids.add(
+                parsed_chart.figure_id
+            )
+
+    expected_figure_ids = {
+        chart.figure_id
+        for chart in specification.charts
+    }
+
+    missing_figure_ids = (
+        expected_figure_ids - used_figure_ids
+    )
+
+    if missing_figure_ids:
+        raise ValueError(
+            "Some charts are not assigned to any report section: "
+            f"{sorted(missing_figure_ids)}"
+        )
+
+    return charts
 
 
 def create_chart_specifications(ai_specifications, df):
@@ -176,6 +263,48 @@ def generate_chart(df, units, charts, output_dir: Path):
         
         generated_files.append(file_path)
         
+    return generated_files
+
+def generate_multi_table_charts(
+    specification: ReportSpecification,
+    tables: list[MeasurementTableData],
+    charts: list[ChartSpecification],
+    output_dir: Path,
+) -> list[Path]:
+
+    output_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    generated_files: list[Path] = []
+
+    for section in specification.sections:
+
+        table = get_measurement_table(
+            tables=tables,
+            table_id=section.table_id,
+        )
+
+        section_charts = [
+            chart
+            for chart in charts
+            if chart.figure_id
+            in section.chart_figure_ids
+        ]
+
+        if not section_charts:
+            continue
+
+        files = generate_chart(
+            df=table.dataframe,
+            units=table.units,
+            charts=section_charts,
+            output_dir=output_dir,
+        )
+
+        generated_files.extend(files)
+
     return generated_files
         
         
