@@ -6,7 +6,7 @@ from docx.enum.table import WD_TABLE_ALIGNMENT, WD_CELL_VERTICAL_ALIGNMENT
 from docx.shared import Cm, Pt
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-
+from PIL import Image
 from app.schemas.report import ReportSpecification
 from app.services.excel_reader import (
     MeasurementTableData,
@@ -24,78 +24,289 @@ from app.services.report_style import (
     DEFAULT_REPORT_STYLE,
 )
 
+from docx.dml.color import RGBColor
+from docx.oxml.ns import qn
+from docx.shared import Cm, Pt, RGBColor
+
+REPORT_FONT = "Calibri Light"
+
+def calculate_image_size(
+    image_path: Path,
+    *,
+    max_width_cm: float = 13.5,
+    max_height_cm: float = 11.0,
+) -> tuple[float, float]:
+    """
+    Zwraca rozmiar obrazka w cm.
+
+    - zachowuje proporcje,
+    - nie przekracza max_width_cm,
+    - nie przekracza max_height_cm.
+    """
+
+    with Image.open(image_path) as image:
+        width_px, height_px = image.size
+
+        dpi = image.info.get("dpi", (96, 96))
+
+        dpi_x = dpi[0] or 96
+        dpi_y = dpi[1] or 96
+
+    natural_width_cm = (
+        width_px / dpi_x
+    ) * 2.54
+
+    natural_height_cm = (
+        height_px / dpi_y
+    ) * 2.54
+
+    scale = min(
+        1.0,
+        max_width_cm / natural_width_cm,
+        max_height_cm / natural_height_cm,
+    )
+
+    return (
+        natural_width_cm * scale,
+        natural_height_cm * scale,
+    )
+
+
+
+def set_style_font(
+    style,
+    font_name: str,
+    font_size: Pt,
+    *,
+    bold: bool | None = None,
+):
+    style.font.name = font_name
+    style.font.size = font_size
+
+    if bold is not None:
+        style.font.bold = bold
+
+    style.font.color.rgb = RGBColor(
+        0,
+        0,
+        0,
+    )
+
+    r_pr = style.element.get_or_add_rPr()
+
+    r_fonts = r_pr.rFonts
+
+    if r_fonts is not None:
+        r_fonts.set(
+            qn("w:ascii"),
+            font_name,
+        )
+
+        r_fonts.set(
+            qn("w:hAnsi"),
+            font_name,
+        )
+
+        r_fonts.set(
+            qn("w:eastAsia"),
+            font_name,
+        )
+
+
+def add_page_numbers(
+    document: Document,
+):
+    for section in document.sections:
+
+        # numerujemy również pierwszą stronę
+        section.different_first_page_header_footer = False
+
+        footer = section.footer
+
+        if footer.paragraphs:
+            paragraph = footer.paragraphs[0]
+        else:
+            paragraph = footer.add_paragraph()
+
+        paragraph.alignment = (
+            WD_ALIGN_PARAGRAPH.CENTER
+        )
+
+        paragraph.paragraph_format.space_before = Pt(0)
+        paragraph.paragraph_format.space_after = Pt(0)
+
+        run = paragraph.add_run()
+
+        run.font.name = REPORT_FONT
+        run.font.size = Pt(9)
+
+        r_pr = run._element.get_or_add_rPr()
+
+        r_fonts = r_pr.rFonts
+
+        if r_fonts is not None:
+            r_fonts.set(
+                qn("w:ascii"),
+                REPORT_FONT,
+            )
+
+            r_fonts.set(
+                qn("w:hAnsi"),
+                REPORT_FONT,
+            )
+
+        # ====================================================
+        # NATYWNE POLE WORD: PAGE
+        # ====================================================
+
+        field_begin = OxmlElement(
+            "w:fldChar"
+        )
+
+        field_begin.set(
+            qn("w:fldCharType"),
+            "begin",
+        )
+
+        instruction = OxmlElement(
+            "w:instrText"
+        )
+
+        instruction.set(
+            qn("xml:space"),
+            "preserve",
+        )
+
+        instruction.text = (
+            " PAGE \\* MERGEFORMAT "
+        )
+
+        field_separator = OxmlElement(
+            "w:fldChar"
+        )
+
+        field_separator.set(
+            qn("w:fldCharType"),
+            "separate",
+        )
+
+        # wartość tymczasowa,
+        # Word/LibreOffice aktualizuje ją
+        cached_value = OxmlElement(
+            "w:t"
+        )
+
+        cached_value.text = "1"
+
+        field_end = OxmlElement(
+            "w:fldChar"
+        )
+
+        field_end.set(
+            qn("w:fldCharType"),
+            "end",
+        )
+
+        run._r.append(
+            field_begin
+        )
+
+        run._r.append(
+            instruction
+        )
+
+        run._r.append(
+            field_separator
+        )
+
+        run._r.append(
+            cached_value
+        )
+
+        run._r.append(
+            field_end
+        )
 
 def configure_document(
     document: Document,
     style: ReportStyle,
 ):
+   
     section = document.sections[0]
 
-    section.top_margin = style.margin_top
-    section.bottom_margin = style.margin_bottom
-    section.left_margin = style.margin_left
-    section.right_margin = style.margin_right
+    section.top_margin = Cm(2.5)
+    section.bottom_margin = Cm(2.5)
+    section.left_margin = Cm(2.5)
+    section.right_margin = Cm(2.5)
 
-    # ========================================================
-    # NORMAL
-    # ========================================================
 
-    normal = document.styles["Normal"]
 
-    normal.font.name = style.body_font
-    normal.font.size = style.body_size
+    normal = document.styles[
+        "Normal"
+    ]
 
-    normal.paragraph_format.line_spacing = (
-        style.line_spacing
+    set_style_font(
+        style=normal,
+        font_name=REPORT_FONT,
+        font_size=Pt(12),
     )
 
-    normal.paragraph_format.space_before = (
-        style.paragraph_space_before
-    )
-
-    normal.paragraph_format.space_after = (
-        style.paragraph_space_after
-    )
-
+    normal.paragraph_format.left_indent = None
+    normal.paragraph_format.right_indent = None
     normal.paragraph_format.first_line_indent = None
 
-    # ========================================================
-    # HEADING 1
-    # ========================================================
+    normal.paragraph_format.space_before = Pt(0)
+    normal.paragraph_format.space_after = Pt(6)
 
-    heading_1 = document.styles["Heading 1"]
+    normal.paragraph_format.line_spacing = 1.15
 
-    heading_1.font.name = style.body_font
-    heading_1.font.size = style.heading_1_size
-    heading_1.font.bold = True
-    heading_1.font.color.rgb = None
 
-    heading_1.paragraph_format.left_indent = Cm(0)
-    heading_1.paragraph_format.first_line_indent = Cm(0)
+    heading_1 = document.styles[
+        "Heading 1"
+    ]
 
-    heading_1.paragraph_format.space_before = Pt(12)
+    set_style_font(
+        style=heading_1,
+        font_name=REPORT_FONT,
+        font_size=Pt(14),
+        bold=True,
+    )
+
+    heading_1.paragraph_format.left_indent = None
+    heading_1.paragraph_format.right_indent = None
+    heading_1.paragraph_format.first_line_indent = None
+
+    heading_1.paragraph_format.space_before = Pt(14)
     heading_1.paragraph_format.space_after = Pt(6)
 
+    heading_1.paragraph_format.line_spacing = 1.0
+
+   
     heading_1.paragraph_format.keep_with_next = True
 
-    # ========================================================
-    # HEADING 2
-    # ========================================================
+ 
 
-    heading_2 = document.styles["Heading 2"]
+    heading_2 = document.styles[
+        "Heading 2"
+    ]
 
-    heading_2.font.name = style.body_font
-    heading_2.font.size = style.heading_2_size
-    heading_2.font.bold = True
-    heading_2.font.color.rgb = None
+    set_style_font(
+        style=heading_2,
+        font_name=REPORT_FONT,
+        font_size=Pt(12),
+        bold=True,
+    )
 
-    heading_2.paragraph_format.left_indent = Cm(0)
-    heading_2.paragraph_format.first_line_indent = Cm(0)
+    heading_2.paragraph_format.left_indent = None
+    heading_2.paragraph_format.right_indent = None
+    heading_2.paragraph_format.first_line_indent = None
 
     heading_2.paragraph_format.space_before = Pt(10)
     heading_2.paragraph_format.space_after = Pt(4)
 
+    heading_2.paragraph_format.line_spacing = 1.0
     heading_2.paragraph_format.keep_with_next = True
+
 
 def set_cell_text(
     cell,
@@ -113,17 +324,17 @@ def set_cell_text(
     )
 
     run.bold = bold
-    run.font.name = "Times New Roman"
+    run.font.name = REPORT_FONT
     run.font.size = Pt(font_size)
 
     run._element.get_or_add_rPr().rFonts.set(
         qn("w:ascii"),
-        "Times New Roman",
+        REPORT_FONT,
     )
 
     run._element.get_or_add_rPr().rFonts.set(
         qn("w:hAnsi"),
-        "Times New Roman",
+        REPORT_FONT,
     )
 
     cell.vertical_alignment = (
@@ -199,11 +410,18 @@ def add_measurement_table(
     table_number: int,
     title: str | None,
 ):
+    # ========================================================
+    # PODPIS
+    # ========================================================
+
     caption = document.add_paragraph()
 
     caption.alignment = (
         WD_ALIGN_PARAGRAPH.CENTER
     )
+
+    caption.paragraph_format.keep_with_next = True
+    caption.paragraph_format.space_after = Pt(3)
 
     run = caption.add_run(
         f"Tabela {table_number}. "
@@ -211,8 +429,12 @@ def add_measurement_table(
     )
 
     run.italic = True
-    run.font.name = "Times New Roman"
+    run.font.name = REPORT_FONT
     run.font.size = Pt(10)
+
+    # ========================================================
+    # DANE
+    # ========================================================
 
     df = table_data.dataframe[
         columns
@@ -229,45 +451,108 @@ def add_measurement_table(
 
     table.style = "Table Grid"
 
-    # --------------------------------------------------------
-    # Nagłówki
-    # --------------------------------------------------------
+    # ========================================================
+    # NAGŁÓWKI
+    # ========================================================
 
-    for index, column in enumerate(columns):
+    for index, column in enumerate(
+        columns
+    ):
+        # nazwa wielkości — BOLD
 
         set_cell_text(
             table.rows[0].cells[index],
             column,
             bold=True,
+            font_size=9,
         )
 
         unit = table_data.units.get(
             column
         )
 
+        # jednostka — normalna
+
         set_cell_text(
             table.rows[1].cells[index],
             unit or "—",
             bold=False,
+            font_size=9,
         )
+
+    # ========================================================
+    # WIERSZE DANYCH
+    # ========================================================
 
     for _, row in df.iterrows():
 
         cells = table.add_row().cells
 
-        for index, column in enumerate(columns):
-
+        for index, column in enumerate(
+            columns
+        ):
             set_cell_text(
                 cells[index],
                 format_number(
                     row[column]
                 ),
+                font_size=9,
             )
 
-    add_table_borders(table)
+    # ========================================================
+    # AUTOMATYCZNE SZEROKOŚCI
+    # ========================================================
+
+    widths = calculate_table_column_widths(
+        document=document,
+        table_data=table_data,
+        columns=columns,
+        font_size=9,
+    )
+
+    apply_table_column_widths(
+        table=table,
+        widths_cm=widths,
+    )
+
+    # ========================================================
+    # PADDING
+    # ========================================================
+
+    set_table_cell_margins(
+        table
+    )
+
+    # ========================================================
+    # PAGINACJA
+    # ========================================================
+
+    # Dwa pierwsze wiersze tworzą nagłówek.
+    # Word powtórzy je na następnej stronie.
+    repeat_table_header(
+        table.rows[0]
+    )
+
+    repeat_table_header(
+        table.rows[1]
+    )
+
+    # Nie rozcinamy pojedynczego wiersza
+    # pomiarowego między stronami.
+    for row in table.rows:
+        prevent_row_split(
+            row
+        )
+
+    # ========================================================
+    # RAMKI
+    # ========================================================
+
+    add_table_borders(
+        table
+    )
 
     document.add_paragraph()
-
 
 def add_chart(
     document: Document,
@@ -276,18 +561,39 @@ def add_chart(
     x: str,
     y: str,
 ):
+    width_cm, _ = calculate_image_size(
+        image_path=chart_path,
+        max_width_cm=13.5,
+        max_height_cm=11.0,
+    )
+
+    # ========================================================
+    # WYKRES
+    # ========================================================
+
     paragraph = document.add_paragraph()
 
     paragraph.alignment = (
         WD_ALIGN_PARAGRAPH.CENTER
     )
 
+    paragraph.paragraph_format.space_before = Pt(6)
+    paragraph.paragraph_format.space_after = Pt(3)
+
+    # Podpis ma zostać z wykresem.
+    paragraph.paragraph_format.keep_with_next = True
+    paragraph.paragraph_format.keep_together = True
+
     run = paragraph.add_run()
 
     run.add_picture(
         str(chart_path),
-        width=Cm(15),
+        width=Cm(width_cm),
     )
+
+    # ========================================================
+    # PODPIS
+    # ========================================================
 
     caption = document.add_paragraph()
 
@@ -295,34 +601,63 @@ def add_chart(
         WD_ALIGN_PARAGRAPH.CENTER
     )
 
+    caption.paragraph_format.space_before = Pt(0)
+    caption.paragraph_format.space_after = Pt(8)
+    caption.paragraph_format.keep_together = True
+
     caption_run = caption.add_run(
         f"Rys. {figure_id}. "
         f"Zależność {y} = f({x})"
     )
 
     caption_run.italic = True
-    caption_run.font.name = "Times New Roman"
+    caption_run.font.name = REPORT_FONT
     caption_run.font.size = Pt(10)
 
 
 def add_example_calculations(
     document: Document,
     calculations: list[dict],
+    row_index: int,
 ):
     if not calculations:
         return
 
     heading = document.add_paragraph()
 
+    heading.paragraph_format.keep_with_next = True
+    heading.paragraph_format.space_before = Pt(8)
+    heading.paragraph_format.space_after = Pt(6)
+
+    measurement_number = row_index + 1
+
     run = heading.add_run(
-        "Przykładowe obliczenia"
+        f"Przykładowe obliczenia "
+        f"dla pomiaru nr {measurement_number}"
     )
 
     run.bold = True
-    run.font.name = "Times New Roman"
+    run.font.name = REPORT_FONT
     run.font.size = Pt(11)
 
     for calculation in calculations:
+        output = calculation["output"]
+
+        calculation_heading = (
+            document.add_paragraph()
+        )
+
+        calculation_heading.paragraph_format.space_before = Pt(6)
+        calculation_heading.paragraph_format.space_after = Pt(3)
+
+        calculation_heading.paragraph_format.keep_with_next = True
+
+        run = calculation_heading.add_run(
+            f"Wyznaczenie wielkości {output}:"
+        )
+
+        run.font.name = REPORT_FONT
+        run.font.size = Pt(11)
 
         expression = calculation.get(
             "expression"
@@ -340,6 +675,7 @@ def add_example_calculations(
             formula_paragraph = (
                 document.add_paragraph()
             )
+            formula_paragraph.paragraph_format.keep_with_next = True
 
             formula_paragraph.alignment = (
                 WD_ALIGN_PARAGRAPH.CENTER
@@ -355,6 +691,7 @@ def add_example_calculations(
             substitution_paragraph = (
                 document.add_paragraph()
             )
+            substitution_paragraph.paragraph_format.keep_with_next = True
 
             substitution_paragraph.alignment = (
                 WD_ALIGN_PARAGRAPH.CENTER
@@ -370,6 +707,7 @@ def add_example_calculations(
             result_paragraph = (
                 document.add_paragraph()
             )
+            result_paragraph.paragraph_format.keep_with_next = False
 
             result_paragraph.alignment = (
                 WD_ALIGN_PARAGRAPH.CENTER
@@ -421,7 +759,7 @@ def add_example_calculations(
             )
 
             run.font.name = (
-                "Times New Roman"
+                REPORT_FONT
             )
 
             run.font.size = Pt(11)
@@ -433,6 +771,333 @@ from app.services.title_page import (
     add_title_page,
 )
 
+def estimate_text_width_cm(
+    value,
+    font_size: float = 9,
+) -> float:
+   
+
+    text = (
+        ""
+        if value is None
+        else str(value)
+    )
+
+    width_units = 0.0
+
+    narrow_chars = set(
+        "il1.,:;|' "
+    )
+
+    wide_chars = set(
+        "MW@%&"
+    )
+
+    for char in text:
+
+        if char in narrow_chars:
+            width_units += 0.30
+
+        elif char in wide_chars:
+            width_units += 0.90
+
+        else:
+            width_units += 0.55
+
+    width_cm = (
+        width_units
+        * font_size
+        * 0.0353
+    )
+
+    return width_cm
+
+def calculate_table_column_widths(
+    document: Document,
+    table_data: MeasurementTableData,
+    columns: list[str],
+    font_size: float = 9,
+) -> list[float]:
+
+    df = table_data.dataframe[
+        columns
+    ]
+
+
+    section = document.sections[0]
+
+    available_width_cm = (
+        section.page_width.cm
+        - section.left_margin.cm
+        - section.right_margin.cm
+    )
+
+
+    max_table_width_cm = (
+        available_width_cm - 0.4
+    )
+
+    widths = []
+
+    horizontal_padding_cm = 0.4
+
+    for column in columns:
+
+        values = [
+            column,
+            table_data.units.get(
+                column
+            )
+            or "—",
+        ]
+
+        values.extend(
+            format_number(value)
+            for value
+            in df[column].tolist()
+        )
+
+        widest_content = max(
+            estimate_text_width_cm(
+                value,
+                font_size=font_size,
+            )
+            for value in values
+        )
+
+        width = (
+            widest_content
+            + horizontal_padding_cm
+        )
+
+        width = max(
+            width,
+            1.1,
+        )
+
+        width = min(
+            width,
+            4.5,
+        )
+
+        widths.append(
+            width
+        )
+
+
+    natural_width = sum(
+        widths
+    )
+
+    if natural_width > max_table_width_cm:
+
+        scale = (
+            max_table_width_cm
+            / natural_width
+        )
+
+        widths = [
+            width * scale
+            for width in widths
+        ]
+
+    return widths
+
+def apply_table_column_widths(
+    table,
+    widths_cm: list[float],
+):
+    table.autofit = False
+
+    tbl_pr = table._tbl.tblPr
+
+    # ========================================================
+    # SZEROKOŚĆ CAŁEJ TABELI
+    # ========================================================
+
+    total_width = sum(
+        widths_cm
+    )
+
+    tbl_w = tbl_pr.first_child_found_in(
+        "w:tblW"
+    )
+
+    if tbl_w is None:
+        tbl_w = OxmlElement(
+            "w:tblW"
+        )
+
+        tbl_pr.append(
+            tbl_w
+        )
+
+    tbl_w.set(
+        qn("w:type"),
+        "dxa",
+    )
+
+    tbl_w.set(
+        qn("w:w"),
+        str(
+            int(
+                Cm(total_width).twips
+            )
+        ),
+    )
+
+    # ========================================================
+    # GRID KOLUMN
+    # ========================================================
+
+    grid_columns = list(
+        table._tbl.tblGrid
+    )
+
+    for index, width_cm in enumerate(
+        widths_cm
+    ):
+        width = Cm(
+            width_cm
+        )
+
+        if index < len(grid_columns):
+
+            grid_columns[index].set(
+                qn("w:w"),
+                str(
+                    int(width.twips)
+                ),
+            )
+
+        for row in table.rows:
+
+            cell = row.cells[
+                index
+            ]
+
+            cell.width = width
+
+            tc_pr = (
+                cell._tc.get_or_add_tcPr()
+            )
+
+            tc_w = (
+                tc_pr.first_child_found_in(
+                    "w:tcW"
+                )
+            )
+
+            if tc_w is None:
+                tc_w = OxmlElement(
+                    "w:tcW"
+                )
+
+                tc_pr.append(
+                    tc_w
+                )
+
+            tc_w.set(
+                qn("w:type"),
+                "dxa",
+            )
+
+            tc_w.set(
+                qn("w:w"),
+                str(
+                    int(width.twips)
+                ),
+            )
+            
+def set_table_cell_margins(
+    table,
+    left: int = 110,
+    right: int = 110,
+    top: int = 40,
+    bottom: int = 40,
+):
+    tbl_pr = table._tbl.tblPr
+
+    margins = (
+        tbl_pr.first_child_found_in(
+            "w:tblCellMar"
+        )
+    )
+
+    if margins is None:
+        margins = OxmlElement(
+            "w:tblCellMar"
+        )
+
+        tbl_pr.append(
+            margins
+        )
+
+    values = {
+        "top": top,
+        "left": left,
+        "bottom": bottom,
+        "right": right,
+    }
+
+    for side, value in values.items():
+
+        element = margins.find(
+            qn(
+                f"w:{side}"
+            )
+        )
+
+        if element is None:
+            element = OxmlElement(
+                f"w:{side}"
+            )
+
+            margins.append(
+                element
+            )
+
+        element.set(
+            qn("w:w"),
+            str(value),
+        )
+
+        element.set(
+            qn("w:type"),
+            "dxa",
+        )
+        
+def repeat_table_header(
+    row,
+):
+    tr_pr = row._tr.get_or_add_trPr()
+
+    tbl_header = OxmlElement(
+        "w:tblHeader"
+    )
+
+    tbl_header.set(
+        qn("w:val"),
+        "true",
+    )
+
+    tr_pr.append(
+        tbl_header
+    )
+    
+def prevent_row_split(
+    row,
+):
+    tr_pr = row._tr.get_or_add_trPr()
+
+    cant_split = OxmlElement(
+        "w:cantSplit"
+    )
+
+    tr_pr.append(
+        cant_split
+    )
+            
 def generate_report_docx(
     report_dir: Path,
     state: dict,
@@ -456,10 +1121,11 @@ def generate_report_docx(
         document=document,
         style=style,
     )
+    
+    add_page_numbers(
+    document
+)
 
-    # ========================================================
-    # TABELA TYTUŁOWA / NAGŁÓWEK PIERWSZEJ STRONY
-    # ========================================================
 
     title_page_data = TitlePageData(
         faculty=(
@@ -518,44 +1184,28 @@ def generate_report_docx(
         report_text["purpose"]
     )
 
-    # ========================================================
-    # 2. BADANY OBWÓD / STANOWISKO
-    # ========================================================
-
-    document.add_heading(
-        "2. Badany obwód i stanowisko pomiarowe",
-        level=1,
-    )
-
-    document.add_paragraph(
-        report_text["setup_description"]
-    )
-
-    # ========================================================
-    # TEORIA
-    # ========================================================
+   
 
     theory = report_text.get(
-        "theory"
-    )
+    "theory"
+)
 
     if theory:
         document.add_heading(
-            "3. Podstawy teoretyczne",
-            level=1,
-        )
+        "2. Podstawy teoretyczne",
+        level=1,
+    )
 
         document.add_paragraph(
-            theory
-        )
+        theory
+    )
 
-        results_number = 4
-        conclusions_number = 5
-
-    else:
         results_number = 3
         conclusions_number = 4
 
+    else:
+        results_number = 2
+        conclusions_number = 3
     # ========================================================
     # OPRACOWANIE WYNIKÓW
     # ========================================================
@@ -585,6 +1235,21 @@ def generate_report_docx(
             [],
         )
     }
+    
+    setup_images_by_id = {
+    image["image_id"]: image
+    for image in state.get(
+        "setup_images",
+        [],
+    )
+}
+
+    section_setup_images = state.get(
+    "section_setup_images",
+    {},
+)
+
+    shown_setup_image_ids = set()
 
     table_number = 1
 
@@ -623,10 +1288,52 @@ def generate_report_docx(
             document.add_paragraph(
                 section_text["description"]
             )
+            
+        # ----------------------------------------------------
+        # SCHEMAT UKŁADU / STANOWISKA
+        # ----------------------------------------------------
 
-        # ----------------------------------------------------
-        # TABELA
-        # ----------------------------------------------------
+        setup_image_id = section_setup_images.get(
+            str(section.section_id)
+        )
+
+        if (
+            setup_image_id
+            and setup_image_id
+            not in shown_setup_image_ids
+        ):
+            setup_image = setup_images_by_id.get(
+                setup_image_id
+            )
+
+            if setup_image is None:
+                raise ValueError(
+                    f"Unknown setup image "
+                    f"'{setup_image_id}' "
+                    f"for section "
+                    f"{section.section_id}."
+                )
+
+            setup_image_path = (
+                report_dir
+                / "setup"
+                / setup_image["filename"]
+            )
+
+            add_setup_image(
+                document=document,
+                image_path=setup_image_path,
+                caption=setup_image.get(
+                    "caption"
+                ),
+            )
+
+            shown_setup_image_ids.add(
+                setup_image_id
+            )
+
+       
+       
 
         if section.table is not None:
 
@@ -661,6 +1368,9 @@ def generate_report_docx(
                 document=document,
                 calculations=section_examples[
                     "calculations"
+                ],
+                row_index=section_examples[
+                    "row_index"
                 ],
             )
 
@@ -748,3 +1458,72 @@ def generate_report_docx(
     )
 
     return output_path
+
+def add_setup_image(
+    document: Document,
+    image_path: Path,
+    caption: str | None = None,
+):
+    if not image_path.exists():
+        raise ValueError(
+            f"Setup image does not exist: "
+            f"{image_path}"
+        )
+
+    width_cm, _ = calculate_image_size(
+        image_path=image_path,
+        max_width_cm=13.5,
+        max_height_cm=11.0,
+    )
+
+    # ========================================================
+    # OBRAZ
+    # ========================================================
+
+    image_paragraph = document.add_paragraph()
+
+    image_paragraph.alignment = (
+        WD_ALIGN_PARAGRAPH.CENTER
+    )
+
+    image_paragraph.paragraph_format.space_before = Pt(6)
+    image_paragraph.paragraph_format.space_after = Pt(3)
+
+    # Obraz musi zostać razem z podpisem.
+    if caption:
+        image_paragraph.paragraph_format.keep_with_next = True
+
+    image_paragraph.paragraph_format.keep_together = True
+
+    run = image_paragraph.add_run()
+
+    run.add_picture(
+        str(image_path),
+        width=Cm(width_cm),
+    )
+
+    # ========================================================
+    # PODPIS
+    # ========================================================
+
+    if caption:
+        caption_paragraph = (
+            document.add_paragraph()
+        )
+
+        caption_paragraph.alignment = (
+            WD_ALIGN_PARAGRAPH.CENTER
+        )
+
+        caption_paragraph.paragraph_format.space_before = Pt(0)
+        caption_paragraph.paragraph_format.space_after = Pt(8)
+
+        caption_paragraph.paragraph_format.keep_together = True
+
+        run = caption_paragraph.add_run(
+            caption
+        )
+
+        run.italic = True
+        run.font.name = REPORT_FONT
+        run.font.size = Pt(10)

@@ -85,6 +85,10 @@ from app.services.instruction_parser import (
 
 from app.schemas.chart import ChartSpecification
 
+from app.services.storage import (
+    overwrite_report_state,
+)
+
 router = APIRouter(prefix="/reports", tags=["reports"])
 
 @router.get("/{report_id}/docx")
@@ -769,4 +773,591 @@ def update_example_calculations(
         "report_id": report_id,
         "row_index": request.row_index,
         "example_calculations": examples,
+    }
+    
+from io import BytesIO
+from uuid import uuid4
+
+from fastapi import (
+    UploadFile,
+    File,
+    Form,
+)
+
+from PIL import (
+    Image,
+    UnidentifiedImageError,
+)
+    
+    
+@router.post(
+    "/{report_id}/setup-images"
+)
+async def upload_setup_image(
+    report_id: str,
+    image: UploadFile = File(...),
+    section_ids: str = Form(...),
+    caption: str | None = Form(None),
+):
+    # ========================================================
+    # WCZYTANIE RAPORTU
+    # ========================================================
+
+    try:
+        state = load_report_state(
+            report_id
+        )
+
+        report_dir = get_report_dir(
+            report_id
+        )
+
+    except FileNotFoundError as error:
+        raise HTTPException(
+            status_code=404,
+            detail=str(error),
+        )
+
+    specification = (
+        ReportSpecification.model_validate(
+            state["specification"]
+        )
+    )
+
+    # ========================================================
+    # SECTION IDS
+    #
+    # Frontend wysyła np.
+    #
+    # "1"
+    # albo
+    # "1,2"
+    # albo
+    # "1,2,3"
+    # ========================================================
+
+    try:
+        parsed_section_ids = [
+            int(value.strip())
+            for value in section_ids.split(",")
+            if value.strip()
+        ]
+
+    except ValueError:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "section_ids must contain "
+                "comma-separated integers."
+            ),
+        )
+
+    if not parsed_section_ids:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "At least one section_id "
+                "must be provided."
+            ),
+        )
+
+    valid_section_ids = {
+        section.section_id
+        for section
+        in specification.sections
+    }
+
+    unknown_section_ids = (
+        set(parsed_section_ids)
+        - valid_section_ids
+    )
+
+    if unknown_section_ids:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Unknown section ids: "
+                f"{sorted(unknown_section_ids)}"
+            ),
+        )
+
+    # ========================================================
+    # WCZYTANIE OBRAZU
+    # ========================================================
+
+    content = await image.read()
+
+    if not content:
+        raise HTTPException(
+            status_code=422,
+            detail="Uploaded image is empty.",
+        )
+
+    # na razie limit 10 MB
+    max_size = 10 * 1024 * 1024
+
+    if len(content) > max_size:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                "Setup image is too large. "
+                "Maximum size is 10 MB."
+            ),
+        )
+
+    # ========================================================
+    # WALIDACJA + KONWERSJA DO PNG
+    # ========================================================
+
+    setup_dir = (
+        report_dir
+        / "setup"
+    )
+
+    setup_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    unique_id = uuid4().hex
+
+    image_id = (
+        f"setup_{unique_id[:12]}"
+    )
+
+    filename = (
+        f"{image_id}.png"
+    )
+
+    output_path = (
+        setup_dir
+        / filename
+    )
+
+    try:
+        with Image.open(
+            BytesIO(content)
+        ) as pil_image:
+
+            pil_image.load()
+
+            # Zachowujemy przezroczystość,
+            # jeżeli obraz ją posiada.
+            if pil_image.mode not in (
+                "RGB",
+                "RGBA",
+            ):
+                pil_image = (
+                    pil_image.convert(
+                        "RGBA"
+                    )
+                )
+
+            pil_image.save(
+                output_path,
+                format="PNG",
+            )
+
+    except (
+        UnidentifiedImageError,
+        OSError,
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Uploaded file is not "
+                "a valid image."
+            ),
+        )
+
+    # ========================================================
+    # STATE
+    # ========================================================
+
+    setup_images = state.setdefault(
+        "setup_images",
+        [],
+    )
+
+    section_setup_images = (
+        state.setdefault(
+            "section_setup_images",
+            {},
+        )
+    )
+
+    image_metadata = {
+        "image_id": image_id,
+        "filename": filename,
+        "caption": (
+            caption
+            or "Schemat układu pomiarowego"
+        ),
+    }
+
+    setup_images.append(
+        image_metadata
+    )
+
+    # Ten sam obraz może należeć
+    # do kilku sekcji.
+    for section_id in parsed_section_ids:
+        section_setup_images[
+            str(section_id)
+        ] = image_id
+
+    overwrite_report_state(
+        report_dir=report_dir,
+        state=state,
+    )
+
+    return {
+        "report_id": report_id,
+        "image": image_metadata,
+        "section_ids": parsed_section_ids,
+    }
+    
+    
+from app.schemas.report import (
+    ReportSpecification,
+    UpdateSetupImageSectionsRequest,
+)
+
+@router.patch(
+    "/{report_id}/setup-images/{image_id}/sections"
+)
+def update_setup_image_sections(
+    report_id: str,
+    image_id: str,
+    request: UpdateSetupImageSectionsRequest,
+):
+    try:
+        state = load_report_state(
+            report_id
+        )
+
+        report_dir = get_report_dir(
+            report_id
+        )
+
+    except FileNotFoundError as error:
+        raise HTTPException(
+            status_code=404,
+            detail=str(error),
+        )
+
+    specification = (
+        ReportSpecification.model_validate(
+            state["specification"]
+        )
+    )
+
+    # ========================================================
+    # CZY OBRAZ ISTNIEJE
+    # ========================================================
+
+    setup_images = state.get(
+        "setup_images",
+        [],
+    )
+
+    image_metadata = next(
+        (
+            image
+            for image in setup_images
+            if image["image_id"] == image_id
+        ),
+        None,
+    )
+
+    if image_metadata is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"Setup image '{image_id}' "
+                "does not exist."
+            ),
+        )
+
+    # ========================================================
+    # WALIDACJA SEKCJI
+    # ========================================================
+
+    section_ids = list(
+        dict.fromkeys(
+            request.section_ids
+        )
+    )
+
+    valid_section_ids = {
+        section.section_id
+        for section in specification.sections
+    }
+
+    unknown_section_ids = (
+        set(section_ids)
+        - valid_section_ids
+    )
+
+    if unknown_section_ids:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Unknown section ids: "
+                f"{sorted(unknown_section_ids)}"
+            ),
+        )
+
+    section_setup_images = (
+        state.setdefault(
+            "section_setup_images",
+            {},
+        )
+    )
+
+    # ========================================================
+    # USUWAMY STARE PRZYPISANIA TEGO OBRAZU
+    # ========================================================
+
+    for section_id, assigned_image_id in list(
+        section_setup_images.items()
+    ):
+        if assigned_image_id == image_id:
+            del section_setup_images[
+                section_id
+            ]
+
+    # ========================================================
+    # DODAJEMY NOWE
+    # ========================================================
+
+    for section_id in section_ids:
+        section_setup_images[
+            str(section_id)
+        ] = image_id
+
+    overwrite_report_state(
+        report_dir=report_dir,
+        state=state,
+    )
+
+    return {
+        "report_id": report_id,
+        "image_id": image_id,
+        "section_ids": section_ids,
+    }
+    
+    
+@router.delete(
+    "/{report_id}/setup-images/{image_id}"
+)
+def delete_setup_image(
+    report_id: str,
+    image_id: str,
+):
+    try:
+        state = load_report_state(
+            report_id
+        )
+
+        report_dir = get_report_dir(
+            report_id
+        )
+
+    except FileNotFoundError as error:
+        raise HTTPException(
+            status_code=404,
+            detail=str(error),
+        )
+
+    setup_images = state.get(
+        "setup_images",
+        [],
+    )
+
+    image_metadata = next(
+        (
+            image
+            for image in setup_images
+            if image["image_id"] == image_id
+        ),
+        None,
+    )
+
+    if image_metadata is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"Setup image '{image_id}' "
+                "does not exist."
+            ),
+        )
+
+    # ========================================================
+    # USUNIĘCIE PLIKU
+    # ========================================================
+
+    image_path = (
+        report_dir
+        / "setup"
+        / image_metadata["filename"]
+    )
+
+    if image_path.exists():
+        image_path.unlink()
+
+    # ========================================================
+    # USUNIĘCIE METADANYCH
+    # ========================================================
+
+    state["setup_images"] = [
+        image
+        for image in setup_images
+        if image["image_id"] != image_id
+    ]
+
+    # ========================================================
+    # USUNIĘCIE PRZYPISAŃ DO SEKCJI
+    # ========================================================
+
+    section_setup_images = state.get(
+        "section_setup_images",
+        {},
+    )
+
+    for section_id, assigned_image_id in list(
+        section_setup_images.items()
+    ):
+        if assigned_image_id == image_id:
+            del section_setup_images[
+                section_id
+            ]
+
+    overwrite_report_state(
+        report_dir=report_dir,
+        state=state,
+    )
+
+    return {
+        "report_id": report_id,
+        "deleted_image_id": image_id,
+    }
+    
+@router.put(
+    "/{report_id}/setup-images/{image_id}"
+)
+async def replace_setup_image(
+    report_id: str,
+    image_id: str,
+    image: UploadFile = File(...),
+    caption: str | None = Form(None),
+):
+    try:
+        state = load_report_state(
+            report_id
+        )
+
+        report_dir = get_report_dir(
+            report_id
+        )
+
+    except FileNotFoundError as error:
+        raise HTTPException(
+            status_code=404,
+            detail=str(error),
+        )
+
+    setup_images = state.get(
+        "setup_images",
+        [],
+    )
+
+    image_metadata = next(
+        (
+            item
+            for item in setup_images
+            if item["image_id"] == image_id
+        ),
+        None,
+    )
+
+    if image_metadata is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"Setup image '{image_id}' "
+                "does not exist."
+            ),
+        )
+
+    content = await image.read()
+
+    if not content:
+        raise HTTPException(
+            status_code=422,
+            detail="Uploaded image is empty.",
+        )
+
+    max_size = 10 * 1024 * 1024
+
+    if len(content) > max_size:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                "Setup image is too large. "
+                "Maximum size is 10 MB."
+            ),
+        )
+
+    output_path = (
+        report_dir
+        / "setup"
+        / image_metadata["filename"]
+    )
+
+    try:
+        with Image.open(
+            BytesIO(content)
+        ) as pil_image:
+
+            pil_image.load()
+
+            if pil_image.mode not in (
+                "RGB",
+                "RGBA",
+            ):
+                pil_image = (
+                    pil_image.convert(
+                        "RGBA"
+                    )
+                )
+
+            pil_image.save(
+                output_path,
+                format="PNG",
+            )
+
+    except (
+        UnidentifiedImageError,
+        OSError,
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Uploaded file is not "
+                "a valid image."
+            ),
+        )
+
+    if caption is not None:
+        image_metadata["caption"] = caption
+
+    overwrite_report_state(
+        report_dir=report_dir,
+        state=state,
+    )
+
+    return {
+        "report_id": report_id,
+        "image": image_metadata,
     }

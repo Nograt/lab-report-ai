@@ -11,11 +11,8 @@ from docx.oxml.ns import qn
 from docx.shared import Pt, Twips
 
 
-# ============================================================
-# GEOMETRIA Z REFERENCYJNEGO SPRAWOZDANIA
-# ============================================================
 
-# szerokości 4 kolumn w twips
+
 TITLE_COLUMN_WIDTHS = [
     3965,  # skład grupy / lewa część nagłówka
     1702,  # semestr
@@ -23,7 +20,7 @@ TITLE_COLUMN_WIDTHS = [
     1416,  # rok / ocena
 ]
 
-# wysokości 3 głównych wierszy
+
 TITLE_ROW_HEIGHTS = [
     1173,
     1463,
@@ -54,9 +51,6 @@ class TitlePageData:
     grade: str = ""
 
 
-# ============================================================
-# PODSTAWOWE HELPERY
-# ============================================================
 
 def _set_run_font(
     run,
@@ -145,9 +139,7 @@ def _add_cell_paragraph(
     return paragraph
 
 
-# ============================================================
-# SZEROKOŚCI
-# ============================================================
+
 
 def _set_cell_width(
     cell,
@@ -200,19 +192,60 @@ def _set_grid_widths(
         )
 
 
-# ============================================================
-# WŁAŚCIWOŚCI TABELI
-# ============================================================
 from docx.enum.table import WD_TABLE_ALIGNMENT
+
+def _set_cell_margins(
+    cell,
+    *,
+    top: int = 0,
+    start: int = 0,
+    bottom: int = 0,
+    end: int = 0,
+):
+    tc_pr = cell._tc.get_or_add_tcPr()
+
+    tc_mar = tc_pr.first_child_found_in(
+        "w:tcMar"
+    )
+
+    if tc_mar is None:
+        tc_mar = OxmlElement(
+            "w:tcMar"
+        )
+        tc_pr.append(tc_mar)
+
+    for side, value in {
+        "top": top,
+        "start": start,
+        "bottom": bottom,
+        "end": end,
+    }.items():
+
+        element = tc_mar.find(
+            qn(f"w:{side}")
+        )
+
+        if element is None:
+            element = OxmlElement(
+                f"w:{side}"
+            )
+            tc_mar.append(element)
+
+        element.set(
+            qn("w:w"),
+            str(value),
+        )
+
+        element.set(
+            qn("w:type"),
+            "dxa",
+        )
 
 def _configure_table(
     table,
 ):
     tbl_pr = table._tbl.tblPr
 
-    # --------------------------------------------------------
-    # fixed layout
-    # --------------------------------------------------------
 
     layout = tbl_pr.first_child_found_in(
         "w:tblLayout"
@@ -231,12 +264,7 @@ def _configure_table(
     )
 
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
-    # --------------------------------------------------------
-    # obramowania
-    #
-    # sz=4 odpowiada ok. 0.5 pt
-    # --------------------------------------------------------
-
+ 
     borders = tbl_pr.first_child_found_in(
         "w:tblBorders"
     )
@@ -288,10 +316,7 @@ def _configure_table(
             "000000",
         )
 
-    # --------------------------------------------------------
-    # minimalne marginesy poziome
-    # --------------------------------------------------------
-
+ 
     cell_margins = (
         tbl_pr.first_child_found_in(
             "w:tblCellMar"
@@ -335,9 +360,6 @@ def _configure_table(
         )
 
 
-# ============================================================
-# CZYSZCZENIE KOMÓRKI
-# ============================================================
 
 def _clear_cell(
     cell,
@@ -353,17 +375,11 @@ def _clear_cell(
     return paragraph
 
 
-# ============================================================
-# GENERATOR TABELI TYTUŁOWEJ
-# ============================================================
 
 def add_title_page(
     document: Document,
     data: TitlePageData,
 ):
-    # ========================================================
-    # 3 WIERSZE × 4 KOLUMNY
-    # ========================================================
 
     table = document.add_table(
         rows=3,
@@ -380,9 +396,6 @@ def add_title_page(
         table
     )
 
-    # ========================================================
-    # WYSOKOŚCI WIERSZY
-    # ========================================================
 
     for row, height in zip(
         table.rows,
@@ -390,15 +403,10 @@ def add_title_page(
     ):
         row.height = Twips(height)
 
-        # W oryginale wysokość działa jako minimum.
-        # Dzięki temu dłuższy temat nie zostanie ucięty.
         row.height_rule = (
             WD_ROW_HEIGHT_RULE.AT_LEAST
         )
 
-    # ========================================================
-    # SZEROKOŚCI KOMÓREK PRZED SCALENIEM
-    # ========================================================
 
     for row in table.rows:
 
@@ -410,16 +418,7 @@ def add_title_page(
                 width,
             )
 
-    # ========================================================
-    # WIERSZ 1
-    #
-    # ┌──────────────┬───────────────────────────────┐
-    # │ WYDZIAŁ      │ LABORATORIUM                  │
-    # │ KATEDRA      │                               │
-    # └──────────────┴───────────────────────────────┘
-    #
-    # prawa komórka zajmuje kolumny 2-4
-    # ========================================================
+
 
     faculty_cell = table.cell(
         0,
@@ -444,9 +443,6 @@ def add_title_page(
         WD_CELL_VERTICAL_ALIGNMENT.CENTER
     )
 
-    # --------------------------------------------------------
-    # WYDZIAŁ + KATEDRA
-    # --------------------------------------------------------
 
     p = _clear_cell(
         faculty_cell
@@ -464,9 +460,6 @@ def add_title_page(
         alignment=WD_ALIGN_PARAGRAPH.CENTER,
     )
 
-    # --------------------------------------------------------
-    # LABORATORIUM
-    # --------------------------------------------------------
 
     p = _clear_cell(
         laboratory_cell
@@ -478,18 +471,19 @@ def add_title_page(
         alignment=WD_ALIGN_PARAGRAPH.CENTER,
     )
 
-    # ========================================================
-    # WIERSZ 2
-    #
-    # ┌──────────┬─────────┬──────────┬──────────┐
-    # │ członkowie│ semestr │ grupa    │ rok akad.│
-    # │           │         │ zespół   │          │
-    # └──────────┴─────────┴──────────┴──────────┘
-    # ========================================================
 
     members_cell = table.cell(
         1,
         0,
+    )
+    
+    _set_cell_margins(
+    members_cell,
+    start=120,
+    end=80,
+    )
+    members_cell.vertical_alignment = (
+    WD_CELL_VERTICAL_ALIGNMENT.TOP
     )
 
     semester_cell = table.cell(
@@ -507,9 +501,7 @@ def add_title_page(
         3,
     )
 
-    # --------------------------------------------------------
-    # SKŁAD GRUPY
-    # --------------------------------------------------------
+
 
     members_cell.vertical_alignment = (
         WD_CELL_VERTICAL_ALIGNMENT.TOP
@@ -535,9 +527,6 @@ def add_title_page(
             alignment=WD_ALIGN_PARAGRAPH.LEFT,
         )
 
-    # --------------------------------------------------------
-    # SEMESTR
-    # --------------------------------------------------------
 
     semester_cell.vertical_alignment = (
         WD_CELL_VERTICAL_ALIGNMENT.CENTER
@@ -559,9 +548,6 @@ def add_title_page(
         alignment=WD_ALIGN_PARAGRAPH.CENTER,
     )
 
-    # --------------------------------------------------------
-    # GRUPA + ZESPÓŁ
-    # --------------------------------------------------------
 
     group_cell.vertical_alignment = (
         WD_CELL_VERTICAL_ALIGNMENT.CENTER
@@ -589,9 +575,6 @@ def add_title_page(
         alignment=WD_ALIGN_PARAGRAPH.CENTER,
     )
 
-    # --------------------------------------------------------
-    # ROK AKADEMICKI
-    # --------------------------------------------------------
 
     year_cell.vertical_alignment = (
         WD_CELL_VERTICAL_ALIGNMENT.CENTER
@@ -619,15 +602,6 @@ def add_title_page(
         alignment=WD_ALIGN_PARAGRAPH.CENTER,
     )
 
-    # ========================================================
-    # WIERSZ 3
-    #
-    # ┌─────────────────────┬──────────┬──────────┐
-    # │ temat               │ data     │ ocena    │
-    # └─────────────────────┴──────────┴──────────┘
-    #
-    # temat = pierwsze dwie kolumny
-    # ========================================================
 
     topic_cell = table.cell(
         2,
@@ -648,10 +622,10 @@ def add_title_page(
         2,
         3,
     )
-
-    # --------------------------------------------------------
-    # TEMAT
-    # --------------------------------------------------------
+    
+    grade_cell.vertical_alignment = (
+            WD_CELL_VERTICAL_ALIGNMENT.TOP
+        )
 
     topic_cell.vertical_alignment = (
         WD_CELL_VERTICAL_ALIGNMENT.CENTER
@@ -673,9 +647,6 @@ def add_title_page(
         alignment=WD_ALIGN_PARAGRAPH.CENTER,
     )
 
-    # --------------------------------------------------------
-    # DATA
-    # --------------------------------------------------------
 
     date_cell.vertical_alignment = (
         WD_CELL_VERTICAL_ALIGNMENT.CENTER
@@ -695,14 +666,6 @@ def add_title_page(
         date_cell,
         data.execution_date,
         alignment=WD_ALIGN_PARAGRAPH.CENTER,
-    )
-
-    # --------------------------------------------------------
-    # OCENA
-    # --------------------------------------------------------
-
-    grade_cell.vertical_alignment = (
-        WD_CELL_VERTICAL_ALIGNMENT.CENTER
     )
 
     p = _clear_cell(

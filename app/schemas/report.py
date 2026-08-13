@@ -33,6 +33,9 @@ class ReportSpecification(BaseModel):
 class UpdateExampleRowRequest(BaseModel):
     row_index: int
     
+class UpdateSetupImageSectionsRequest(BaseModel):
+    section_ids: list[int]
+    
     
 
     

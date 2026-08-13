@@ -196,3 +196,23 @@ def save_completed_measurement_tables(
             )
 
     return file_path
+
+
+
+def overwrite_report_state(
+    report_dir,
+    state: dict,
+) -> None:
+    report_file = (
+        report_dir
+        / "report.json"
+    )
+
+    report_file.write_text(
+        json.dumps(
+            state,
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
