@@ -23,10 +23,13 @@ from app.services.report_style import (
     ReportStyle,
     DEFAULT_REPORT_STYLE,
 )
-
-from docx.dml.color import RGBColor
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
+
+from docx.enum.section import (
+    WD_ORIENT,
+    WD_SECTION_START,
+)
 
 REPORT_FONT = "Calibri Light"
 
@@ -117,8 +120,6 @@ def add_page_numbers(
     document: Document,
 ):
     for section in document.sections:
-
-        # numerujemy również pierwszą stronę
         section.different_first_page_header_footer = False
 
         footer = section.footer
@@ -155,9 +156,7 @@ def add_page_numbers(
                 REPORT_FONT,
             )
 
-        # ====================================================
-        # NATYWNE POLE WORD: PAGE
-        # ====================================================
+   
 
         field_begin = OxmlElement(
             "w:fldChar"
@@ -190,8 +189,6 @@ def add_page_numbers(
             "separate",
         )
 
-        # wartość tymczasowa,
-        # Word/LibreOffice aktualizuje ją
         cached_value = OxmlElement(
             "w:t"
         )
@@ -410,9 +407,17 @@ def add_measurement_table(
     table_number: int,
     title: str | None,
 ):
-    # ========================================================
-    # PODPIS
-    # ========================================================
+    
+    widths, font_size, use_landscape = (
+    choose_table_layout(
+        document=document,
+        table_data=table_data,
+        columns=columns,
+    )
+)
+
+    if use_landscape:
+        start_landscape_section(document)
 
     caption = document.add_paragraph()
 
@@ -432,9 +437,6 @@ def add_measurement_table(
     run.font.name = REPORT_FONT
     run.font.size = Pt(10)
 
-    # ========================================================
-    # DANE
-    # ========================================================
 
     df = table_data.dataframe[
         columns
@@ -451,38 +453,30 @@ def add_measurement_table(
 
     table.style = "Table Grid"
 
-    # ========================================================
-    # NAGŁÓWKI
-    # ========================================================
-
     for index, column in enumerate(
         columns
     ):
-        # nazwa wielkości — BOLD
+
 
         set_cell_text(
             table.rows[0].cells[index],
             column,
             bold=True,
-            font_size=9,
+            font_size=font_size,
         )
 
         unit = table_data.units.get(
             column
         )
 
-        # jednostka — normalna
 
         set_cell_text(
             table.rows[1].cells[index],
             unit or "—",
             bold=False,
-            font_size=9,
+            font_size=font_size,
         )
 
-    # ========================================================
-    # WIERSZE DANYCH
-    # ========================================================
 
     for _, row in df.iterrows():
 
@@ -496,39 +490,19 @@ def add_measurement_table(
                 format_number(
                     row[column]
                 ),
-                font_size=9,
+                font_size=font_size,
             )
-
-    # ========================================================
-    # AUTOMATYCZNE SZEROKOŚCI
-    # ========================================================
-
-    widths = calculate_table_column_widths(
-        document=document,
-        table_data=table_data,
-        columns=columns,
-        font_size=9,
-    )
 
     apply_table_column_widths(
         table=table,
         widths_cm=widths,
     )
 
-    # ========================================================
-    # PADDING
-    # ========================================================
 
     set_table_cell_margins(
         table
     )
 
-    # ========================================================
-    # PAGINACJA
-    # ========================================================
-
-    # Dwa pierwsze wiersze tworzą nagłówek.
-    # Word powtórzy je na następnej stronie.
     repeat_table_header(
         table.rows[0]
     )
@@ -537,27 +511,26 @@ def add_measurement_table(
         table.rows[1]
     )
 
-    # Nie rozcinamy pojedynczego wiersza
-    # pomiarowego między stronami.
     for row in table.rows:
         prevent_row_split(
             row
         )
 
-    # ========================================================
-    # RAMKI
-    # ========================================================
-
     add_table_borders(
-        table
-    )
+    table
+)
 
-    document.add_paragraph()
+    if use_landscape:
+        start_portrait_section(
+            document
+        )
+    else:
+        document.add_paragraph()
 
 def add_chart(
     document: Document,
     chart_path: Path,
-    figure_id: int,
+    figure_number: int,
     x: str,
     y: str,
 ):
@@ -567,9 +540,6 @@ def add_chart(
         max_height_cm=11.0,
     )
 
-    # ========================================================
-    # WYKRES
-    # ========================================================
 
     paragraph = document.add_paragraph()
 
@@ -580,7 +550,6 @@ def add_chart(
     paragraph.paragraph_format.space_before = Pt(6)
     paragraph.paragraph_format.space_after = Pt(3)
 
-    # Podpis ma zostać z wykresem.
     paragraph.paragraph_format.keep_with_next = True
     paragraph.paragraph_format.keep_together = True
 
@@ -591,9 +560,6 @@ def add_chart(
         width=Cm(width_cm),
     )
 
-    # ========================================================
-    # PODPIS
-    # ========================================================
 
     caption = document.add_paragraph()
 
@@ -606,9 +572,9 @@ def add_chart(
     caption.paragraph_format.keep_together = True
 
     caption_run = caption.add_run(
-        f"Rys. {figure_id}. "
-        f"Zależność {y} = f({x})"
-    )
+    f"Rys. {figure_number}. "
+    f"Zależność {y} = f({x})"
+)
 
     caption_run.italic = True
     caption_run.font.name = REPORT_FONT
@@ -812,30 +778,15 @@ def estimate_text_width_cm(
 
     return width_cm
 
-def calculate_table_column_widths(
-    document: Document,
+def calculate_natural_column_widths(
     table_data: MeasurementTableData,
     columns: list[str],
-    font_size: float = 9,
+    font_size: float,
 ) -> list[float]:
 
     df = table_data.dataframe[
         columns
     ]
-
-
-    section = document.sections[0]
-
-    available_width_cm = (
-        section.page_width.cm
-        - section.left_margin.cm
-        - section.right_margin.cm
-    )
-
-
-    max_table_width_cm = (
-        available_width_cm - 0.4
-    )
 
     widths = []
 
@@ -847,8 +798,7 @@ def calculate_table_column_widths(
             column,
             table_data.units.get(
                 column
-            )
-            or "—",
+            ) or "—",
         ]
 
         values.extend(
@@ -884,24 +834,217 @@ def calculate_table_column_widths(
             width
         )
 
+    return widths
 
-    natural_width = sum(
+def scale_widths_to_limit(
+    widths: list[float],
+    max_width_cm: float,
+) -> list[float]:
+
+    total_width = sum(
         widths
     )
 
-    if natural_width > max_table_width_cm:
+    if total_width <= max_width_cm:
+        return widths
 
-        scale = (
-            max_table_width_cm
-            / natural_width
+    scale = (
+        max_width_cm
+        / total_width
+    )
+
+    return [
+        width * scale
+        for width in widths
+    ]
+    
+def choose_table_layout(
+    document: Document,
+    table_data: MeasurementTableData,
+    columns: list[str],
+) -> tuple[list[float], float, bool]:
+
+    section = document.sections[-1]
+
+
+    portrait_width_cm = (
+        section.page_width.cm
+        - section.left_margin.cm
+        - section.right_margin.cm
+        - 0.4
+    )
+
+    landscape_width_cm = (
+        section.page_height.cm
+        - section.left_margin.cm
+        - section.right_margin.cm
+        - 0.4
+    )
+
+
+
+    widths_9 = (
+        calculate_natural_column_widths(
+            table_data=table_data,
+            columns=columns,
+            font_size=9,
+        )
+    )
+
+    total_9 = sum(
+        widths_9
+    )
+
+    if total_9 <= portrait_width_cm:
+        return (
+            widths_9,
+            9,
+            False,
         )
 
-        widths = [
-            width * scale
-            for width in widths
-        ]
+    widths_8 = (
+        calculate_natural_column_widths(
+            table_data=table_data,
+            columns=columns,
+            font_size=8,
+        )
+    )
 
-    return widths
+    total_8 = sum(
+        widths_8
+    )
+
+    compression = (
+        portrait_width_cm
+        / total_8
+    )
+
+    if compression >= 0.85:
+
+        return (
+            scale_widths_to_limit(
+                widths=widths_8,
+                max_width_cm=portrait_width_cm,
+            ),
+            8,
+            False,
+        )
+
+
+    if total_9 <= landscape_width_cm:
+        return (
+            widths_9,
+            9,
+            True,
+        )
+
+    return (
+        scale_widths_to_limit(
+            widths=widths_8,
+            max_width_cm=landscape_width_cm,
+        ),
+        8,
+        True,
+    )
+    
+def start_landscape_section(
+    document: Document,
+):
+    previous_section = (
+        document.sections[-1]
+    )
+
+    previous_width = (
+        previous_section.page_width
+    )
+
+    previous_height = (
+        previous_section.page_height
+    )
+
+    new_section = document.add_section(
+        WD_SECTION_START.NEW_PAGE
+    )
+
+    new_section.orientation = (
+        WD_ORIENT.LANDSCAPE
+    )
+
+    new_section.page_width = (
+        previous_height
+    )
+
+    new_section.page_height = (
+        previous_width
+    )
+
+    new_section.top_margin = (
+        previous_section.top_margin
+    )
+
+    new_section.bottom_margin = (
+        previous_section.bottom_margin
+    )
+
+    new_section.left_margin = (
+        previous_section.left_margin
+    )
+
+    new_section.right_margin = (
+        previous_section.right_margin
+    )
+
+    return new_section
+
+
+def start_portrait_section(
+    document: Document,
+):
+    previous_section = (
+        document.sections[-1]
+    )
+
+    previous_width = (
+        previous_section.page_width
+    )
+
+    previous_height = (
+        previous_section.page_height
+    )
+
+    new_section = document.add_section(
+        WD_SECTION_START.NEW_PAGE
+    )
+
+    new_section.orientation = (
+        WD_ORIENT.PORTRAIT
+    )
+
+    new_section.page_width = (
+        previous_height
+    )
+
+    new_section.page_height = (
+        previous_width
+    )
+
+    new_section.top_margin = (
+        previous_section.top_margin
+    )
+
+    new_section.bottom_margin = (
+        previous_section.bottom_margin
+    )
+
+    new_section.left_margin = (
+        previous_section.left_margin
+    )
+
+    new_section.right_margin = (
+        previous_section.right_margin
+    )
+
+    return new_section
 
 def apply_table_column_widths(
     table,
@@ -911,9 +1054,6 @@ def apply_table_column_widths(
 
     tbl_pr = table._tbl.tblPr
 
-    # ========================================================
-    # SZEROKOŚĆ CAŁEJ TABELI
-    # ========================================================
 
     total_width = sum(
         widths_cm
@@ -946,9 +1086,6 @@ def apply_table_column_widths(
         ),
     )
 
-    # ========================================================
-    # GRID KOLUMN
-    # ========================================================
 
     grid_columns = list(
         table._tbl.tblGrid
@@ -1160,20 +1297,11 @@ def generate_report_docx(
         data=title_page_data,
     )
 
-    # UWAGA:
-    # Nie robimy document.add_page_break().
-    #
-    # We wzorcowym sprawozdaniu pierwsza sekcja
-    # zaczyna się na tej samej stronie pod tabelą.
 
     spacer = document.add_paragraph()
 
     spacer.paragraph_format.space_before = Pt(0)
     spacer.paragraph_format.space_after = Pt(10)
-
-    # ========================================================
-    # 1. CEL ĆWICZENIA
-    # ========================================================
 
     document.add_heading(
         "1. Cel ćwiczenia",
@@ -1206,9 +1334,6 @@ def generate_report_docx(
     else:
         results_number = 2
         conclusions_number = 3
-    # ========================================================
-    # OPRACOWANIE WYNIKÓW
-    # ========================================================
 
     document.add_heading(
         f"{results_number}. Opracowanie wyników",
@@ -1251,11 +1376,9 @@ def generate_report_docx(
 
     shown_setup_image_ids = set()
 
+    figure_number = 1
     table_number = 1
 
-    # ========================================================
-    # SEKCJE OPRACOWANIA WYNIKÓW
-    # ========================================================
 
     for section_index, section in enumerate(
         specification.sections,
@@ -1277,9 +1400,6 @@ def generate_report_docx(
             )
         )
 
-        # ----------------------------------------------------
-        # OPIS
-        # ----------------------------------------------------
 
         if (
             section.include_description
@@ -1289,9 +1409,6 @@ def generate_report_docx(
                 section_text["description"]
             )
             
-        # ----------------------------------------------------
-        # SCHEMAT UKŁADU / STANOWISKA
-        # ----------------------------------------------------
 
         setup_image_id = section_setup_images.get(
             str(section.section_id)
@@ -1323,10 +1440,13 @@ def generate_report_docx(
             add_setup_image(
                 document=document,
                 image_path=setup_image_path,
+                figure_number=figure_number,
                 caption=setup_image.get(
                     "caption"
                 ),
             )
+
+            figure_number += 1
 
             shown_setup_image_ids.add(
                 setup_image_id
@@ -1352,9 +1472,6 @@ def generate_report_docx(
 
             table_number += 1
 
-        # ----------------------------------------------------
-        # PRZYKŁADOWE OBLICZENIA
-        # ----------------------------------------------------
 
         section_examples = (
             examples_by_section_id.get(
@@ -1373,10 +1490,6 @@ def generate_report_docx(
                     "row_index"
                 ],
             )
-
-        # ----------------------------------------------------
-        # WYKRESY
-        # ----------------------------------------------------
 
         for figure_id in section.chart_figure_ids:
 
@@ -1399,14 +1512,14 @@ def generate_report_docx(
             add_chart(
                 document=document,
                 chart_path=chart_path,
-                figure_id=figure_id,
+                figure_number=figure_number,
                 x=chart["x"],
                 y=chart["y"],
             )
 
-        # ----------------------------------------------------
-        # ANALIZA
-        # ----------------------------------------------------
+            
+            figure_number += 1
+
 
         if (
             section.include_analysis
@@ -1415,6 +1528,8 @@ def generate_report_docx(
             analysis_heading = (
                 document.add_paragraph()
             )
+            
+            analysis_heading.paragraph_format.keep_with_next = True
 
             analysis_heading.paragraph_format.space_before = Pt(6)
             analysis_heading.paragraph_format.space_after = Pt(3)
@@ -1431,10 +1546,6 @@ def generate_report_docx(
                 section_text["analysis"]
             )
 
-    # ========================================================
-    # WNIOSKI
-    # ========================================================
-
     document.add_heading(
         f"{conclusions_number}. Wnioski",
         level=1,
@@ -1444,9 +1555,6 @@ def generate_report_docx(
         report_text["conclusions"]
     )
 
-    # ========================================================
-    # ZAPIS
-    # ========================================================
 
     output_path = (
         report_dir
@@ -1462,6 +1570,7 @@ def generate_report_docx(
 def add_setup_image(
     document: Document,
     image_path: Path,
+    figure_number: int,
     caption: str | None = None,
 ):
     if not image_path.exists():
@@ -1476,9 +1585,6 @@ def add_setup_image(
         max_height_cm=11.0,
     )
 
-    # ========================================================
-    # OBRAZ
-    # ========================================================
 
     image_paragraph = document.add_paragraph()
 
@@ -1489,11 +1595,10 @@ def add_setup_image(
     image_paragraph.paragraph_format.space_before = Pt(6)
     image_paragraph.paragraph_format.space_after = Pt(3)
 
-    # Obraz musi zostać razem z podpisem.
+    image_paragraph.paragraph_format.keep_together = True
+
     if caption:
         image_paragraph.paragraph_format.keep_with_next = True
-
-    image_paragraph.paragraph_format.keep_together = True
 
     run = image_paragraph.add_run()
 
@@ -1502,14 +1607,9 @@ def add_setup_image(
         width=Cm(width_cm),
     )
 
-    # ========================================================
-    # PODPIS
-    # ========================================================
 
     if caption:
-        caption_paragraph = (
-            document.add_paragraph()
-        )
+        caption_paragraph = document.add_paragraph()
 
         caption_paragraph.alignment = (
             WD_ALIGN_PARAGRAPH.CENTER
@@ -1517,11 +1617,10 @@ def add_setup_image(
 
         caption_paragraph.paragraph_format.space_before = Pt(0)
         caption_paragraph.paragraph_format.space_after = Pt(8)
-
         caption_paragraph.paragraph_format.keep_together = True
 
         run = caption_paragraph.add_run(
-            caption
+            f"Rys. {figure_number}. {caption}"
         )
 
         run.italic = True
