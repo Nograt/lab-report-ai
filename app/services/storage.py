@@ -5,6 +5,7 @@ import shutil
 from typing import BinaryIO
 import pandas as pd
 from app.services.excel_reader import MeasurementTableData
+from app.schemas.report_metadata import (ReportMetadata,)
 
 
 
@@ -48,6 +49,7 @@ def save_report_state(
     section_analyses,
     report_text,
     measurement_tables,
+    report_metadata: ReportMetadata | None = None,
 ) -> Path:
 
     state = {
@@ -85,6 +87,11 @@ def save_report_state(
     }
     for table in measurement_tables
 ],
+"report_metadata": (
+    report_metadata.model_dump()
+    if report_metadata
+    else None
+),
 }
 
     file_path = report_dir / "report.json"

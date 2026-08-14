@@ -1262,35 +1262,49 @@ def generate_report_docx(
     add_page_numbers(
     document
 )
+    
+    metadata = state.get(
+    "report_metadata"
+)
+
+    if metadata is None:
+        raise ValueError(
+            "Report metadata is missing."
+        )
+
+
+    profile = metadata["profile"]
+    subject = metadata["subject"]
 
 
     title_page_data = TitlePageData(
-        faculty=(
-            "WYDZIAŁ ELEKTROTECHNIKI I "
-            "INFORMATYKI PL"
-        ),
-        department=(
-            "Katedra Napędów i Maszyn "
-            "Elektrycznych"
-        ),
-        laboratory=(
-            "Laboratorium elektromaszynowych "
-            "układów wykonawczych"
-        ),
-        members=[
-            "Wojciech Targoński",
-            "Jan Walczyński",
-            "Marcin Piela",
-            "Miłosz Pietrak",
-        ],
-        semester="4",
-        group="IZI 4.2/3",
-        team="1",
-        academic_year="2025/2026",
-        topic=specification.report_title,
-        execution_date="26.05.2026",
-        grade="",
-    )
+    faculty=profile["faculty"],
+
+    department=(
+        subject.get("department")
+        or ""
+    ),
+
+    laboratory=(
+        subject.get("laboratory")
+        or ""
+    ),
+
+    members=metadata["members"],
+
+    semester=profile["semester"],
+    group=profile["group"],
+    team=metadata["team"],
+    academic_year=profile["academic_year"],
+
+    topic=specification.report_title,
+
+    execution_date=metadata[
+        "execution_date"
+    ],
+
+    grade="",
+)
 
     add_title_page(
         document=document,

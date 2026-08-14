@@ -89,6 +89,20 @@ from app.services.storage import (
     overwrite_report_state,
 )
 
+from app.schemas.report_metadata import (
+    ProfileSnapshot,
+    SubjectSnapshot,
+    ReportMetadata,
+)
+
+from app.services.profile_storage import (
+    load_user_profile,
+)
+
+from app.services.subject_storage import (
+    get_subject,
+)
+
 router = APIRouter(prefix="/reports", tags=["reports"])
 
 @router.get("/{report_id}/docx")
@@ -155,7 +169,75 @@ def get_report_docx(
 async def analyze_report(
     instruction: Annotated[str, Form()],
     measurements: Annotated[UploadFile, File()],
+
+    subject_id: Annotated[str, Form()],
+    execution_date: Annotated[str, Form()],
+
+    team: Annotated[str, Form()] = "",
+    members: Annotated[str | None, Form()] = None,
 ):
+    
+    profile = load_user_profile()
+
+    if profile is None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "User profile must be created "
+                "before generating a report."
+            ),
+        )
+
+
+    subject = get_subject(
+        subject_id
+    )
+
+    if subject is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Subject not found.",
+        )
+
+    if members:
+        member_names = [
+            name.strip()
+            for name in members.split(",")
+            if name.strip()
+        ]
+
+    else:
+        member_names = [
+            (
+                f"{profile.first_name} "
+                f"{profile.last_name}"
+            ).strip()
+        ]
+
+    report_metadata = ReportMetadata(
+        profile=ProfileSnapshot(
+            first_name=profile.first_name,
+            last_name=profile.last_name,
+            university=profile.university,
+            faculty=profile.faculty,
+            field_of_study=profile.field_of_study,
+            semester=profile.semester,
+            group=profile.group,
+            academic_year=profile.academic_year,
+        ),
+
+        subject=SubjectSnapshot(
+            id=subject.id,
+            name=subject.name,
+            instructor_name=subject.instructor_name,
+            department=subject.department,
+            laboratory=subject.laboratory,
+        ),
+
+        members=member_names,
+        team=team,
+        execution_date=execution_date,
+    )
 
     try:
         measurement_tables = read_measurement_tables(
@@ -307,18 +389,20 @@ async def analyze_report(
 
 
     save_report_state(
-        report_dir=report_dir,
-        report_id=report_id,
-        specification=specification,
-        charts=charts,
+    report_dir=report_dir,
+    report_id=report_id,
+    specification=specification,
+    charts=charts,
 
-        units={},
+    units={},
 
-        example_calculations=example_calculations,
-        section_analyses=section_analyses,
-        report_text=report_text,
-        measurement_tables=completed_tables,
-    )
+    example_calculations=example_calculations,
+    section_analyses=section_analyses,
+    report_text=report_text,
+    measurement_tables=completed_tables,
+
+    report_metadata=report_metadata,
+)
 
 
     return {
