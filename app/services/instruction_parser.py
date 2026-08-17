@@ -407,32 +407,52 @@ y = "Uk(I)"
 
 - Do not invent additional charts.
 
-
 ==================================================
 CHART GROUPING
 ==================================================
 
-If multiple characteristics are explicitly required on the SAME chart,
-give them the same figure_id.
+A ChartSpecification represents ONE data series.
+
+figure_id identifies the PHYSICAL FIGURE shown in the final report.
+
+Several ChartSpecification objects may share the same figure_id.
+
+If the instruction explicitly says that multiple characteristics
+must be shown on the same chart, all corresponding ChartSpecification
+objects MUST have exactly the same figure_id.
 
 Example:
 
-"Na jednym wykresie przedstawić Uk(I), P(I) oraz cosφK(I)"
+"Na jednym wspólnym wykresie przedstawić:
+I = f(P),
+cosφ = f(P),
+s = f(P),
+η = f(P)"
+
+must become:
+
+I(P)       figure_id = 1
+cosφ(P)    figure_id = 1
+s(P)       figure_id = 1
+η(P)       figure_id = 1
+
+Do NOT assign separate figure_id values in this case.
+
+Assign a new figure_id only when the instruction requires
+a separate physical figure.
+
+Example:
+
+"P0 = f(U0) na osobnym wykresie"
+"I0 = f(U0) na osobnym wykresie"
 
 becomes:
 
-Uk(I)     figure_id = 1
-P(I)      figure_id = 1
-cosφK(I)  figure_id = 1
+P0(U0)     figure_id = 1
+I0(U0)     figure_id = 2
 
-
-If characteristics are required on separate charts,
-use different figure_id values.
-
-figure_id values should start from 1 and be assigned sequentially.
-
-Do not reuse the same figure_id for charts that the instruction says
-must be separate.
+figure_id values should be sequential across PHYSICAL FIGURES,
+not across individual ChartSpecification objects.
 
 
 ==================================================

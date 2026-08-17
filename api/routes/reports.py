@@ -103,7 +103,157 @@ from app.services.subject_storage import (
     get_subject,
 )
 
+from app.services.openai_file_service import (
+    upload_instruction_pdf,
+    delete_openai_file,
+)
+
+from app.services.instruction_preparer import (
+    prepare_instruction,
+)
+
+from app.schemas.instruction_parameters import (
+    InstructionParameterValue,
+)
+
+from app.services.instruction_parameter_resolver import (
+    apply_instruction_parameters,
+)
+import json
+
 router = APIRouter(prefix="/reports", tags=["reports"])
+@router.post("/resolve-instruction")
+async def resolve_instruction(
+    instruction: Annotated[
+        str,
+        Form(),
+    ],
+    parameters: Annotated[
+        str,
+        Form(),
+    ],
+):
+    try:
+        raw_parameters = json.loads(
+            parameters
+        )
+
+        parameter_values = [
+            InstructionParameterValue.model_validate(
+                item
+            )
+            for item in raw_parameters
+        ]
+
+    except (
+        json.JSONDecodeError,
+        ValueError,
+    ) as error:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Invalid parameters: {error}"
+            ),
+        )
+
+    resolved_instruction = (
+        apply_instruction_parameters(
+            instruction=instruction,
+            parameters=parameter_values,
+        )
+    )
+
+    return {
+        "instruction": resolved_instruction,
+    }
+
+@router.post("/prepare-instruction")
+async def prepare_report_instruction(
+    instruction_file: Annotated[
+        UploadFile,
+        File(),
+    ],
+    measurements: Annotated[
+        UploadFile,
+        File(),
+    ],
+):
+
+    instruction_file_id = None
+
+    try:
+        # ========================================================
+        # 1. Odczyt tabel z Excela
+        # ========================================================
+
+        try:
+            measurement_tables = (
+                read_measurement_tables(
+                    measurements.file
+                )
+            )
+
+        except ValueError as error:
+            raise HTTPException(
+                status_code=422,
+                detail=str(error),
+            )
+
+        # ========================================================
+        # 2. Metadata tabel
+        # ========================================================
+
+        table_infos = (
+            create_measurement_table_infos(
+                measurement_tables
+            )
+        )
+
+        # ========================================================
+        # 3. Upload PDF do OpenAI
+        # ========================================================
+
+        try:
+            instruction_file_id = (
+                upload_instruction_pdf(
+                    instruction_file
+                )
+            )
+
+        except ValueError as error:
+            raise HTTPException(
+                status_code=422,
+                detail=str(error),
+            )
+
+        # ========================================================
+        # 4. Przygotowanie instrukcji
+        # ========================================================
+
+        try:
+            preparation = prepare_instruction(
+                instruction_file_id=instruction_file_id,
+                measurement_tables=table_infos,
+            )
+
+        except ValueError as error:
+            raise HTTPException(
+                status_code=422,
+                detail=str(error),
+            )
+
+        # ========================================================
+        # 5. Wynik
+        # ========================================================
+
+        return preparation.model_dump()
+
+    finally:
+
+        if instruction_file_id is not None:
+            delete_openai_file(
+                instruction_file_id
+            )
 
 @router.get("/{report_id}/docx")
 def get_report_docx(
@@ -175,6 +325,7 @@ async def analyze_report(
 
     team: Annotated[str, Form()] = "",
     members: Annotated[str | None, Form()] = None,
+    parameters: Annotated[str | None,Form(),] = None,
 ):
     
     profile = load_user_profile()
@@ -186,6 +337,41 @@ async def analyze_report(
                 "User profile must be created "
                 "before generating a report."
             ),
+        )
+        
+    resolved_instruction = instruction
+    
+    if parameters:
+
+        try:
+            raw_parameters = json.loads(
+                parameters
+            )
+
+            parameter_values = [
+                InstructionParameterValue.model_validate(
+                    item
+                )
+                for item in raw_parameters
+            ]
+
+        except (
+            json.JSONDecodeError,
+            ValueError,
+        ) as error:
+
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Invalid parameters: {error}"
+                ),
+            )
+
+        resolved_instruction = (
+            apply_instruction_parameters(
+                instruction=resolved_instruction,
+                parameters=parameter_values,
+            )
         )
 
 
@@ -257,7 +443,7 @@ async def analyze_report(
 
     try:
         specification = parse_report_instruction_with_repair(
-        instruction=instruction,
+        instruction=resolved_instruction,
         measurement_tables=table_infos,
     )
 
@@ -266,34 +452,24 @@ async def analyze_report(
         status_code=422,
         detail=str(error),
     )
+        
+    print("\n=== CHARTS FROM AI ===")
 
-
-    try:
-        validate_report_specification(
-        specification=specification,
-        measurement_tables=table_infos,
-    )
-
-    except ValueError as first_error:
-        specification = repair_report_specification(
-        specification=specification,
-        validation_error=str(first_error),
-        instruction=instruction,
-        measurement_tables=table_infos,
-    )
-    try:
-        validate_report_specification(
-            specification=specification,
-            measurement_tables=table_infos,
+    for chart in specification.charts:
+        print(
+            f"figure_id={chart.figure_id}, "
+            f"x={chart.x}, "
+            f"y={chart.y}"
         )
 
-    except ValueError as second_error:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                "Report specification remained invalid "
-                f"after automatic repair: {second_error}"
-            ),
+
+    print("\n=== SECTION FIGURES FROM AI ===")
+
+    for section in specification.sections:
+        print(
+            f"section_id={section.section_id}, "
+            f"title={section.title}, "
+            f"figures={section.chart_figure_ids}"
         )
 
     try:
@@ -355,7 +531,7 @@ async def analyze_report(
         report_text = generate_report_text(
             specification=specification,
             analyses=section_analyses,
-            instruction=instruction,
+            instruction=resolved_instruction,
         )
 
     except ValueError as error:

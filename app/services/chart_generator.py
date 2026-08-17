@@ -18,7 +18,7 @@ def create_multi_table_chart_specifications(
 
     charts: list[ChartSpecification] = []
 
-    used_figure_ids: set[int] = set()
+    figure_to_section: dict[int, int] = {}
 
     for section in specification.sections:
 
@@ -35,16 +35,32 @@ def create_multi_table_chart_specifications(
             section.chart_figure_ids
         )
 
+        for figure_id in section_chart_ids:
+
+            if figure_id in figure_to_section:
+                previous_section_id = (
+                    figure_to_section[figure_id]
+                )
+
+                if previous_section_id != section.section_id:
+                    raise ValueError(
+                        f"Chart figure_id={figure_id} "
+                        "is assigned to more than one "
+                        "report section."
+                    )
+
+            else:
+                figure_to_section[
+                    figure_id
+                ] = section.section_id
+
         for parsed_chart in specification.charts:
 
-            if parsed_chart.figure_id not in section_chart_ids:
+            if (
+                parsed_chart.figure_id
+                not in section_chart_ids
+            ):
                 continue
-
-            if parsed_chart.figure_id in used_figure_ids:
-                raise ValueError(
-                    f"Chart figure_id={parsed_chart.figure_id} "
-                    "is assigned to more than one report section."
-                )
 
             if parsed_chart.x not in available_columns:
                 raise ValueError(
@@ -72,22 +88,24 @@ def create_multi_table_chart_specifications(
                 )
             )
 
-            used_figure_ids.add(
-                parsed_chart.figure_id
-            )
-
     expected_figure_ids = {
         chart.figure_id
         for chart in specification.charts
     }
 
+    assigned_figure_ids = set(
+        figure_to_section
+    )
+
     missing_figure_ids = (
-        expected_figure_ids - used_figure_ids
+        expected_figure_ids
+        - assigned_figure_ids
     )
 
     if missing_figure_ids:
         raise ValueError(
-            "Some charts are not assigned to any report section: "
+            "Some charts are not assigned to any "
+            "report section: "
             f"{sorted(missing_figure_ids)}"
         )
 
