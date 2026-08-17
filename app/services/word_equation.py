@@ -306,9 +306,6 @@ def _append_expression_core(
         "type"
     ]
 
-    # ========================================================
-    # VARIABLE
-    # ========================================================
 
     if expression_type == "variable":
         name = expression["name"]
@@ -342,10 +339,6 @@ def _append_expression_core(
 
         return
 
-    # ========================================================
-    # CONSTANT
-    # ========================================================
-
     if expression_type == "constant":
         parent.append(
             _math_run(
@@ -357,9 +350,6 @@ def _append_expression_core(
 
         return
 
-    # ========================================================
-    # OPERATION
-    # ========================================================
 
     if expression_type != "operation":
         raise ValueError(
@@ -374,9 +364,7 @@ def _append_expression_core(
         "args"
     ]
 
-    # --------------------------------------------------------
-    # ADD
-    # --------------------------------------------------------
+
 
     if operation == "add":
         for index, arg in enumerate(args):
@@ -397,10 +385,6 @@ def _append_expression_core(
             )
 
         return
-
-    # --------------------------------------------------------
-    # SUBTRACT
-    # --------------------------------------------------------
 
     if operation == "subtract":
         if len(args) != 2:
@@ -434,10 +418,6 @@ def _append_expression_core(
 
         return
 
-    # --------------------------------------------------------
-    # MULTIPLY
-    # --------------------------------------------------------
-
     if operation == "multiply":
         for index, arg in enumerate(args):
             if index > 0:
@@ -457,10 +437,6 @@ def _append_expression_core(
             )
 
         return
-
-    # --------------------------------------------------------
-    # DIVIDE
-    # --------------------------------------------------------
 
     if operation == "divide":
         if len(args) != 2:
@@ -509,10 +485,6 @@ def _append_expression_core(
 
         return
 
-    # --------------------------------------------------------
-    # POWER
-    # --------------------------------------------------------
-
     if operation == "power":
         if len(args) != 2:
             raise ValueError(
@@ -553,10 +525,6 @@ def _append_expression_core(
         parent.append(power)
 
         return
-
-    # --------------------------------------------------------
-    # SQRT
-    # --------------------------------------------------------
 
     if operation == "sqrt":
         if len(args) != 1:
@@ -609,10 +577,6 @@ def _append_expression_core(
 
         return
 
-    # --------------------------------------------------------
-    # FUNCTIONS
-    # --------------------------------------------------------
-
     if operation in {
         "sin",
         "cos",
@@ -642,10 +606,6 @@ def _append_expression_core(
         )
 
         return
-
-    # --------------------------------------------------------
-    # ABS
-    # --------------------------------------------------------
 
     if operation == "abs":
         if len(args) != 1:

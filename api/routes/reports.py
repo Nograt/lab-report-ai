@@ -471,6 +471,13 @@ async def analyze_report(
             f"title={section.title}, "
             f"figures={section.chart_figure_ids}"
         )
+        
+    print("\n=== CALCULATIONS FROM AI ===")
+
+    for calculation in specification.calculations:
+        print(calculation.model_dump())
+
+    print("============================\n")
 
     try:
         completed_tables = execute_table_calculations(

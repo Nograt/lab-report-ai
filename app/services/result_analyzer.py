@@ -105,6 +105,29 @@ def analyze_chart_relationship(
     df: pd.DataFrame,
     chart: ChartSpecification,
 ) -> ChartRelationshipAnalysis:
+    
+    
+    print("\n=== ANALYZE CHART DEBUG ===")
+    print("figure_id:", chart.figure_id)
+    print("x:", chart.x)
+    print("y:", chart.y)
+
+    print("columns:")
+    print(df.columns.tolist())
+
+    print("\nRAW X:")
+    print(df[chart.x])
+
+    print("\nRAW Y:")
+    print(df[chart.y])
+
+    print("\nDTYPES:")
+    print(
+        df[
+            [chart.x, chart.y]
+        ].dtypes
+    )
+    
 
     data = pd.DataFrame(
         {
@@ -118,6 +141,10 @@ def analyze_chart_relationship(
             ),
         }
     ).dropna()
+    
+    print("\nAFTER NUMERIC + DROPNA:")
+    print(data)
+    print("=========================\n")
 
     if data.empty:
         raise ValueError(

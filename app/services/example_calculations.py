@@ -14,6 +14,30 @@ from app.services.excel_reader import (
     MeasurementTableData,
     get_measurement_table,
 )
+
+
+def format_formula_number(
+    value: float | int,
+) -> str:
+
+    value = float(value)
+
+    if value == 0:
+        return "0"
+
+    if abs(value - round(value)) < 1e-12:
+        return str(int(round(value)))
+
+    formatted = f"{value:.6f}"
+
+    return (
+        formatted
+        .rstrip("0")
+        .rstrip(".")
+    )
+    
+    
+    
 def create_multi_table_example_calculations(
     specification: ReportSpecification,
     tables: list[MeasurementTableData],
@@ -170,9 +194,8 @@ def expression_to_latex(
         )
 
     if isinstance(expression, ConstantExpression):
-        return format_number(
+        return format_formula_number(
             expression.value,
-            decimal_places
         )
 
     if not isinstance(expression, OperationExpression):

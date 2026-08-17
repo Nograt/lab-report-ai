@@ -7,7 +7,7 @@ from app.schemas.report import ReportSpecification
 from app.core.openai_client import client
 
 
-MODEL = "gpt-5.6"
+MODEL = "gpt-5.6-luna"
 
 REPORT_SYSTEM_PROMPT = """
 You write complete laboratory report text in Polish.

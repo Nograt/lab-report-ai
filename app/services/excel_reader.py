@@ -23,6 +23,15 @@ def create_measurement_table_infos(
             sheet_name=table.sheet_name,
             columns=table.dataframe.columns.tolist(),
             units=table.units,
+
+            column_has_values={
+                column: bool(
+                    table.dataframe[column]
+                    .notna()
+                    .any()
+                )
+                for column in table.dataframe.columns
+            },
         )
         for table in tables
     ]
