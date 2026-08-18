@@ -1,34 +1,41 @@
 from pathlib import Path
 
 from docx import Document
+from docx.enum.section import (
+    WD_ORIENT,
+    WD_SECTION_START,
+)
+from docx.enum.table import (
+    WD_CELL_VERTICAL_ALIGNMENT,
+    WD_TABLE_ALIGNMENT,
+)
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.enum.table import WD_TABLE_ALIGNMENT, WD_CELL_VERTICAL_ALIGNMENT
-from docx.shared import Cm, Pt
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
+from docx.shared import (
+    Cm,
+    Pt,
+    RGBColor,
+)
 from PIL import Image
+
 from app.schemas.report import ReportSpecification
 from app.services.excel_reader import (
     MeasurementTableData,
     get_measurement_table,
 )
-
+from app.services.report_style import (
+    DEFAULT_REPORT_STYLE,
+    ReportStyle,
+)
+from app.services.title_page import (
+    TitlePageData,
+    add_title_page,
+)
 from app.services.word_equation import (
     append_formula_equation,
-    append_substitution_equation,
     append_result_equation,
-)
-
-from app.services.report_style import (
-    ReportStyle,
-    DEFAULT_REPORT_STYLE,
-)
-from docx.oxml.ns import qn
-from docx.shared import Cm, Pt, RGBColor
-
-from docx.enum.section import (
-    WD_ORIENT,
-    WD_SECTION_START,
+    append_substitution_equation,
 )
 
 REPORT_FONT = "Calibri Light"
@@ -730,12 +737,6 @@ def add_example_calculations(
 
             run.font.size = Pt(11)
 
-
-
-from app.services.title_page import (
-    TitlePageData,
-    add_title_page,
-)
 
 def estimate_text_width_cm(
     value,
@@ -1553,7 +1554,7 @@ def generate_report_docx(
             )
 
             run.bold = True
-            run.font.name = style.body_font
+            run.font.name = REPORT_FONT
             run.font.size = Pt(11)
 
             document.add_paragraph(

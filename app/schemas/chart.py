@@ -5,8 +5,14 @@ from pydantic import BaseModel
 
 class ChartSpecification(BaseModel):
     figure_id: int
+    table_id: int
+
     x: str
     y: str
+
+    filter_column: str | None = None
+    filter_value: float | str | None = None
+    label: str | None = None
 
     connect_points: bool = True
 

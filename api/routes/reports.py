@@ -1,109 +1,215 @@
-from typing import Annotated
+import json
 import shutil
+
+from io import BytesIO
+from typing import Annotated
+from uuid import uuid4
+
 import pandas as pd
-from fastapi import APIRouter, File, Form, UploadFile, HTTPException
-from app.services.instruction_parser import parse_report_instruction
-from app.services.chart_generator import (
-    create_chart_specifications,
-    generate_chart,
-    match_column_name,
+
+from fastapi import (
+    APIRouter,
+    File,
+    Form,
+    HTTPException,
+    UploadFile,
 )
 from fastapi.responses import FileResponse
 
-from app.services.docx_generator import (
-    generate_report_docx,
+from PIL import (
+    Image,
+    UnidentifiedImageError,
 )
 
-from app.services.storage import (
-    create_report_workspace,
-    save_measurements,
-    save_report_state,
-    load_report_state,
-    get_report_dir,
-    save_report_state_data,
-    save_completed_measurements,
+from app.schemas.chart import (
+    ChartSpecification,
+    UpdateChartsRequest,
 )
-from app.schemas.chart import UpdateChartsRequest
-from app.services.calculation_engine import execute_calculations
-
-from app.services.example_calculations import (
-    create_example_calculations,
+from app.schemas.instruction_parameters import (
+    InstructionParameterValue,
 )
-
 from app.schemas.report import (
     ReportSpecification,
     UpdateExampleRowRequest,
+    UpdateSetupImageSectionsRequest,
 )
-
-from app.services.result_analyzer import analyze_section
-from app.services.report_text_generator import generate_report_text
-
-from app.services.excel_reader import (
-    read_meansurements,
-    read_measurement_tables,
-    read_completed_measurement_tables,
-    create_measurement_table_infos,
-    get_measurement_table,
+from app.schemas.report_metadata import (
+    ProfileSnapshot,
+    ReportMetadata,
+    SubjectSnapshot,
 )
 
 from app.services.calculation_engine import (
     execute_table_calculations,
 )
-
 from app.services.chart_generator import (
     create_multi_table_chart_specifications,
     generate_multi_table_charts,
+    match_column_name,
 )
-
-from app.services.result_analyzer import (
-    analyze_report_sections,
+from app.services.docx_generator import (
+    generate_report_docx,
 )
-
 from app.services.example_calculations import (
     create_multi_table_example_calculations,
 )
-
-from app.services.report_text_generator import (
-    generate_report_text,
+from app.services.excel_reader import (
+    create_measurement_table_infos,
+    get_measurement_table,
+    read_completed_measurement_tables,
+    read_measurement_tables,
 )
-
-from app.services.storage import (
-    create_report_workspace,
-    save_measurements,
-    save_completed_measurement_tables,
-    save_report_state,
+from app.services.instruction_parameter_resolver import (
+    apply_instruction_parameters,
 )
-
-from app.services.specification_validator import (
-    validate_report_specification,
-)
-
 from app.services.instruction_parser import (
     parse_report_instruction_with_repair,
-    repair_report_specification,
 )
-
-from app.schemas.chart import ChartSpecification
-
-from app.services.storage import (
-    overwrite_report_state,
+from app.services.instruction_preparer import (
+    prepare_instruction,
 )
-
-from app.schemas.report_metadata import (
-    ProfileSnapshot,
-    SubjectSnapshot,
-    ReportMetadata,
+from app.services.openai_file_service import (
+    delete_openai_file,
+    upload_instruction_pdf,
 )
-
 from app.services.profile_storage import (
     load_user_profile,
 )
-
+from app.services.report_text_generator import (
+    generate_report_text,
+)
+from app.services.result_analyzer import (
+    analyze_report_sections,
+)
+from app.services.storage import (
+    create_report_workspace,
+    get_report_dir,
+    load_report_state,
+    overwrite_report_state,
+    save_completed_measurement_tables,
+    save_measurements,
+    save_report_state,
+    save_report_state_data,
+)
 from app.services.subject_storage import (
     get_subject,
 )
 
 router = APIRouter(prefix="/reports", tags=["reports"])
+@router.post("/resolve-instruction")
+async def resolve_instruction(
+    instruction: Annotated[
+        str,
+        Form(),
+    ],
+    parameters: Annotated[
+        str,
+        Form(),
+    ],
+):
+    try:
+        raw_parameters = json.loads(
+            parameters
+        )
+
+        parameter_values = [
+            InstructionParameterValue.model_validate(
+                item
+            )
+            for item in raw_parameters
+        ]
+
+    except (
+        json.JSONDecodeError,
+        ValueError,
+    ) as error:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Invalid parameters: {error}"
+            ),
+        )
+
+    resolved_instruction = (
+        apply_instruction_parameters(
+            instruction=instruction,
+            parameters=parameter_values,
+        )
+    )
+
+    return {
+        "instruction": resolved_instruction,
+    }
+
+@router.post("/prepare-instruction")
+async def prepare_report_instruction(
+    instruction_file: Annotated[
+        UploadFile,
+        File(),
+    ],
+    measurements: Annotated[
+        UploadFile,
+        File(),
+    ],
+):
+
+    instruction_file_id = None
+
+    try:
+
+        try:
+            measurement_tables = (
+                read_measurement_tables(
+                    measurements.file
+                )
+            )
+
+        except ValueError as error:
+            raise HTTPException(
+                status_code=422,
+                detail=str(error),
+            )
+
+        table_infos = (
+            create_measurement_table_infos(
+                measurement_tables
+            )
+        )
+
+
+        try:
+            instruction_file_id = (
+                upload_instruction_pdf(
+                    instruction_file
+                )
+            )
+
+        except ValueError as error:
+            raise HTTPException(
+                status_code=422,
+                detail=str(error),
+            )
+
+        try:
+            preparation = prepare_instruction(
+                instruction_file_id=instruction_file_id,
+                measurement_tables=table_infos,
+            )
+
+        except ValueError as error:
+            raise HTTPException(
+                status_code=422,
+                detail=str(error),
+            )
+
+        return preparation.model_dump()
+
+    finally:
+
+        if instruction_file_id is not None:
+            delete_openai_file(
+                instruction_file_id
+            )
 
 @router.get("/{report_id}/docx")
 def get_report_docx(
@@ -175,6 +281,7 @@ async def analyze_report(
 
     team: Annotated[str, Form()] = "",
     members: Annotated[str | None, Form()] = None,
+    parameters: Annotated[str | None,Form(),] = None,
 ):
     
     profile = load_user_profile()
@@ -186,6 +293,41 @@ async def analyze_report(
                 "User profile must be created "
                 "before generating a report."
             ),
+        )
+        
+    resolved_instruction = instruction
+    
+    if parameters:
+
+        try:
+            raw_parameters = json.loads(
+                parameters
+            )
+
+            parameter_values = [
+                InstructionParameterValue.model_validate(
+                    item
+                )
+                for item in raw_parameters
+            ]
+
+        except (
+            json.JSONDecodeError,
+            ValueError,
+        ) as error:
+
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Invalid parameters: {error}"
+                ),
+            )
+
+        resolved_instruction = (
+            apply_instruction_parameters(
+                instruction=resolved_instruction,
+                parameters=parameter_values,
+            )
         )
 
 
@@ -257,7 +399,7 @@ async def analyze_report(
 
     try:
         specification = parse_report_instruction_with_repair(
-        instruction=instruction,
+        instruction=resolved_instruction,
         measurement_tables=table_infos,
     )
 
@@ -266,36 +408,7 @@ async def analyze_report(
         status_code=422,
         detail=str(error),
     )
-
-
-    try:
-        validate_report_specification(
-        specification=specification,
-        measurement_tables=table_infos,
-    )
-
-    except ValueError as first_error:
-        specification = repair_report_specification(
-        specification=specification,
-        validation_error=str(first_error),
-        instruction=instruction,
-        measurement_tables=table_infos,
-    )
-    try:
-        validate_report_specification(
-            specification=specification,
-            measurement_tables=table_infos,
-        )
-
-    except ValueError as second_error:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                "Report specification remained invalid "
-                f"after automatic repair: {second_error}"
-            ),
-        )
-
+        
     try:
         completed_tables = execute_table_calculations(
             tables=measurement_tables,
@@ -355,7 +468,7 @@ async def analyze_report(
         report_text = generate_report_text(
             specification=specification,
             analyses=section_analyses,
-            instruction=instruction,
+            instruction=resolved_instruction,
         )
 
     except ValueError as error:
@@ -858,21 +971,7 @@ def update_example_calculations(
         "row_index": request.row_index,
         "example_calculations": examples,
     }
-    
-from io import BytesIO
-from uuid import uuid4
-
-from fastapi import (
-    UploadFile,
-    File,
-    Form,
-)
-
-from PIL import (
-    Image,
-    UnidentifiedImageError,
-)
-    
+      
     
 @router.post(
     "/{report_id}/setup-images"
@@ -883,9 +982,6 @@ async def upload_setup_image(
     section_ids: str = Form(...),
     caption: str | None = Form(None),
 ):
-    # ========================================================
-    # WCZYTANIE RAPORTU
-    # ========================================================
 
     try:
         state = load_report_state(
@@ -908,17 +1004,6 @@ async def upload_setup_image(
         )
     )
 
-    # ========================================================
-    # SECTION IDS
-    #
-    # Frontend wysyła np.
-    #
-    # "1"
-    # albo
-    # "1,2"
-    # albo
-    # "1,2,3"
-    # ========================================================
 
     try:
         parsed_section_ids = [
@@ -965,9 +1050,6 @@ async def upload_setup_image(
             ),
         )
 
-    # ========================================================
-    # WCZYTANIE OBRAZU
-    # ========================================================
 
     content = await image.read()
 
@@ -977,7 +1059,6 @@ async def upload_setup_image(
             detail="Uploaded image is empty.",
         )
 
-    # na razie limit 10 MB
     max_size = 10 * 1024 * 1024
 
     if len(content) > max_size:
@@ -989,9 +1070,6 @@ async def upload_setup_image(
             ),
         )
 
-    # ========================================================
-    # WALIDACJA + KONWERSJA DO PNG
-    # ========================================================
 
     setup_dir = (
         report_dir
@@ -1025,8 +1103,6 @@ async def upload_setup_image(
 
             pil_image.load()
 
-            # Zachowujemy przezroczystość,
-            # jeżeli obraz ją posiada.
             if pil_image.mode not in (
                 "RGB",
                 "RGBA",
@@ -1054,10 +1130,6 @@ async def upload_setup_image(
             ),
         )
 
-    # ========================================================
-    # STATE
-    # ========================================================
-
     setup_images = state.setdefault(
         "setup_images",
         [],
@@ -1083,8 +1155,6 @@ async def upload_setup_image(
         image_metadata
     )
 
-    # Ten sam obraz może należeć
-    # do kilku sekcji.
     for section_id in parsed_section_ids:
         section_setup_images[
             str(section_id)
@@ -1101,11 +1171,6 @@ async def upload_setup_image(
         "section_ids": parsed_section_ids,
     }
     
-    
-from app.schemas.report import (
-    ReportSpecification,
-    UpdateSetupImageSectionsRequest,
-)
 
 @router.patch(
     "/{report_id}/setup-images/{image_id}/sections"
@@ -1136,10 +1201,6 @@ def update_setup_image_sections(
         )
     )
 
-    # ========================================================
-    # CZY OBRAZ ISTNIEJE
-    # ========================================================
-
     setup_images = state.get(
         "setup_images",
         [],
@@ -1162,10 +1223,6 @@ def update_setup_image_sections(
                 "does not exist."
             ),
         )
-
-    # ========================================================
-    # WALIDACJA SEKCJI
-    # ========================================================
 
     section_ids = list(
         dict.fromkeys(
@@ -1199,9 +1256,6 @@ def update_setup_image_sections(
         )
     )
 
-    # ========================================================
-    # USUWAMY STARE PRZYPISANIA TEGO OBRAZU
-    # ========================================================
 
     for section_id, assigned_image_id in list(
         section_setup_images.items()
@@ -1210,10 +1264,6 @@ def update_setup_image_sections(
             del section_setup_images[
                 section_id
             ]
-
-    # ========================================================
-    # DODAJEMY NOWE
-    # ========================================================
 
     for section_id in section_ids:
         section_setup_images[
@@ -1277,10 +1327,6 @@ def delete_setup_image(
             ),
         )
 
-    # ========================================================
-    # USUNIĘCIE PLIKU
-    # ========================================================
-
     image_path = (
         report_dir
         / "setup"
@@ -1290,19 +1336,11 @@ def delete_setup_image(
     if image_path.exists():
         image_path.unlink()
 
-    # ========================================================
-    # USUNIĘCIE METADANYCH
-    # ========================================================
-
     state["setup_images"] = [
         image
         for image in setup_images
         if image["image_id"] != image_id
     ]
-
-    # ========================================================
-    # USUNIĘCIE PRZYPISAŃ DO SEKCJI
-    # ========================================================
 
     section_setup_images = state.get(
         "section_setup_images",

@@ -7,6 +7,11 @@ class ParsedChartSpecification(BaseModel):
     figure_id: int
     x: str
     y: str
+    table_id: int
+    
+    filter_column: str | None = None
+    filter_value: float | str | None = None
+    label: str | None = None
 
 
 class ReportSpecification(BaseModel):

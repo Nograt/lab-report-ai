@@ -4,6 +4,7 @@ from docx import Document
 from docx.enum.table import (
     WD_CELL_VERTICAL_ALIGNMENT,
     WD_ROW_HEIGHT_RULE,
+    WD_TABLE_ALIGNMENT,
 )
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
@@ -11,13 +12,11 @@ from docx.oxml.ns import qn
 from docx.shared import Pt, Twips
 
 
-
-
 TITLE_COLUMN_WIDTHS = [
-    3965,  # skład grupy / lewa część nagłówka
-    1702,  # semestr
-    1981,  # grupa / data
-    1416,  # rok / ocena
+    3965,  
+    1702,  
+    1981,  
+    1416,  
 ]
 
 
@@ -190,9 +189,6 @@ def _set_grid_widths(
         tbl_grid.append(
             grid_col
         )
-
-
-from docx.enum.table import WD_TABLE_ALIGNMENT
 
 def _set_cell_margins(
     cell,

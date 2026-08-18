@@ -11,4 +11,6 @@ class MeasurementTableInfo(BaseModel):
 
     units: dict[str, str | None]
     
+    column_has_values: dict[str, bool]
+    
     

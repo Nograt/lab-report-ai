@@ -1,5 +1,3 @@
-
-import json
 from app.schemas.report import ReportSpecification
 from app.core.openai_client import client
 from app.schemas.measurement import MeasurementTableInfo
@@ -50,54 +48,39 @@ Rules:
 - Remove trailing punctuation from report_title.
 - If the instruction explicitly provides a title such as
   "Temat ćwiczenia: ...", preserve that title as closely as possible.
-
 - Do not append measurement section titles, subsection names,
   chart names or processing stages to report_title.
-
 - If the overall exercise title cannot be identified from the instruction,
   return null.
 
-
 - include_purpose should always be true.
-
 - The final report always contains a purpose section.
 
-
 - include_setup should always be true.
-
 - The final report always contains a description of the tested circuit,
   measurement setup or laboratory station.
-
 - The content of the setup section must be based only on information
   available in the laboratory instruction or other provided materials.
-
 - Do not invent equipment, circuit elements, connections, apparatus
   or measurement procedures that are not supported by the provided materials.
-
 - Even if the instruction does not explicitly request a setup description,
   include_setup remains true.
 
-
 - include_conclusions should always be true.
-
 - The final report always contains conclusions.
-
 
 - include_theory should be true only when the instruction requires
   theoretical description, theoretical background, description of
   the physical phenomenon, principle of operation or similar theory content.
-
 - Otherwise include_theory should be false.
-
 
 - A request to "describe the measurements", "describe the test",
   "describe the results" or similar wording should normally be represented
   by ReportSection.include_description = true.
-
 - Such wording does not create a separate report section by itself.
 
-
 - Preserve the order of measurement/result sections from the instruction.
+
 
 ==================================================
 REPORT SECTIONS
@@ -117,32 +100,25 @@ For every distinct measurement/result stage return one ReportSection.
 Rules:
 
 - section_id is an internal sequential identifier starting from 1.
-
 - section_id is NOT visible numbering such as 3.1, 3.2 or 4.1.
-
 - title should describe the measurement/result stage.
-
 - Preserve section titles from the instruction whenever possible.
-
-- Do not create sections for:
-  purpose,
-  theory,
-  setup,
-  conclusions.
-
+- Do not create sections for purpose, theory, setup or conclusions.
 - If the instruction contains calculations, a results table or charts
   but does not explicitly name the measurement stage, create one reasonable
   result section describing that group of work.
-
 - Do not merge clearly separate measurement stages into one section.
 - section_id identifies the report section.
 - table_id identifies the measurement table used by that section.
 - section_id and table_id are different concepts and do not need
   to have the same value.
-  - calculation_outputs contains calculation output names belonging
+- calculation_outputs contains calculation output names belonging
   to the same table_id as the section.
-  
-  CALCULATION TABLE ASSIGNMENT
+
+
+==================================================
+CALCULATION TABLE ASSIGNMENT
+==================================================
 
 Every CalculationSpecification must contain table_id.
 
@@ -162,33 +138,59 @@ Rules:
 - The same output name may exist in different tables.
   In that case, table_id distinguishes the calculations.
 
+
 ==================================================
-TABLES
+TABLE STRUCTURE
 ==================================================
 
-A section may contain one result table.
+The matched Excel measurement table is the authoritative source
+of the table structure shown in the final report.
 
-Rules:
+For every ReportSection that contains a table:
 
-- table may be null if the section does not require a table.
+- table.columns MUST contain ALL columns from the matched Excel
+  measurement table.
+- Preserve the original Excel column order.
+- Preserve the exact Excel column names.
+- Never remove an Excel column because it is not mentioned
+  in the laboratory instruction.
+- Never remove auxiliary measurement columns.
+- Never remove columns because they are not used in calculations,
+  charts, or report analysis.
+- Never reduce the table to only the variables required by
+  the laboratory instruction.
+- Existing calculated columns from Excel must also be preserved.
+- If the instruction requires a calculated quantity and its output
+  column already exists in Excel, use that exact column name.
+- A named intermediate calculation does NOT need to be added to
+  ReportSection.table.columns when no such Excel column exists.
+  It may exist only as a CalculationSpecification used by later calculations.
+- Do not add helper/intermediate columns to the visible report table
+  unless they already exist in Excel or the instruction explicitly requires
+  that quantity to be shown as a table column.
 
-- table.title should describe the results represented by the table.
+IMPORTANT:
 
-- table.columns contains the variables that belong to that section.
+The instruction determines WHAT should be calculated, plotted,
+and discussed.
 
-- When a variable already exists in AVAILABLE EXCEL COLUMNS,
-  use the exact Excel column name whenever possible.
+The Excel table determines WHICH COLUMNS are displayed in the
+report table.
 
-- A table may include calculated quantities produced by calculations.
+These are separate responsibilities.
 
-- Calculated output columns may be included even if their cells are
-  currently empty in the uploaded Excel file.
+Example:
 
-- Do not invent unrelated columns.
+If the matched Excel table contains:
 
-- Do not automatically include every Excel column in every section.
+Lp., U₀, I₀, P₀, Iu, Pu, Iz, Pz, Uz, Uc, n₀, s₀, cosφ₀
 
-- Preserve variable notation as closely as possible.
+then table.columns MUST contain exactly those Excel columns in
+that order, even if the instruction discusses only:
+
+U₀, I₀, P₀, n₀, s₀, cosφ₀.
+
+Do not use the instruction to filter the Excel table columns.
 
 
 ==================================================
@@ -202,17 +204,13 @@ Calculations are stored globally in `calculations`.
 For every calculation:
 
 - output is the name of the calculated quantity.
-
 - expression represents the mathematical formula as an expression tree.
-
 - unit should be determined in this order:
 
   1. If output exists in COLUMN UNITS and its unit is known,
      use that unit.
-
   2. Otherwise, if the instruction explicitly specifies the unit,
      use that unit.
-
   3. Otherwise return null.
 
 Do not infer a unit only from general scientific knowledge.
@@ -226,6 +224,74 @@ Do not invent formulas that are not present in the instruction.
 
 When an input variable corresponds to an existing Excel column,
 use its exact name from AVAILABLE EXCEL COLUMNS whenever possible.
+
+If Excel metadata indicates that an existing result column is already
+populated, do not create a new calculation that overwrites it unless the
+normalized instruction explicitly requires recalculating that quantity.
+
+If Excel metadata indicates that a result column is empty and the
+instruction explicitly provides a formula for it, create the corresponding
+CalculationSpecification.
+
+
+==================================================
+INTERMEDIATE CALCULATIONS
+==================================================
+
+Named intermediate quantities are important for readable example
+calculations in the final report.
+
+If the instruction explicitly defines a named intermediate quantity
+with its own formula, ALWAYS preserve it as a separate
+CalculationSpecification when it is later used by another calculation.
+
+Do NOT inline the intermediate expression into later formulas.
+
+Example:
+
+If the instruction contains:
+
+n₁ = 60 * f₁ / p
+s₀ = (n₁ - n₀) / n₁
+
+create two calculations assigned to the same table:
+
+1. output = "n₁"
+   expression = 60 * f₁ / p
+
+2. output = "s₀"
+   expression = (n₁ - n₀) / n₁
+
+The second calculation MUST reference variable "n₁".
+
+Do NOT produce:
+
+s₀ = ((60 * f₁ / p) - n₀) / (60 * f₁ / p)
+
+The same rule applies when a named intermediate is reused by several
+later calculations.
+
+If the same intermediate quantity is required independently in two
+measurement tables, create one CalculationSpecification for each table,
+using the appropriate table_id.
+
+Example:
+
+If table 1 uses n₁ to calculate s₀ and table 3 uses n₁ to calculate s,
+then it is valid and preferred to return:
+
+- table_id=1, output="n₁"
+- table_id=1, output="s₀" referencing "n₁"
+- table_id=3, output="n₁"
+- table_id=3, output="s" referencing "n₁"
+
+Do not make calculations from one table depend on n₁ calculated for
+another table.
+
+A named intermediate calculation may remain invisible in
+ReportSection.table.columns if no corresponding Excel column exists.
+It should still appear in the section's calculation_outputs when it is
+part of the logical calculation sequence shown in the report.
 
 
 ==================================================
@@ -271,7 +337,6 @@ log
 ln
 abs
 
-
 Operation argument rules:
 
 - add: at least 2 arguments
@@ -288,7 +353,9 @@ Operation argument rules:
 - abs: exactly 1 argument
 
 
+==================================================
 IMPORTANT ABOUT PHYSICAL VARIABLE NAMES
+==================================================
 
 Names such as:
 
@@ -317,32 +384,6 @@ the cosine of an argument, for example:
 cos(φ)
 
 
-Example calculation:
-
-PK = P - Pap
-
-becomes:
-
-{
-  "output": "PK",
-  "unit": null,
-  "expression": {
-    "type": "operation",
-    "operation": "subtract",
-    "args": [
-      {
-        "type": "variable",
-        "name": "P"
-      },
-      {
-        "type": "variable",
-        "name": "Pap"
-      }
-    ]
-  }
-}
-
-
 ==================================================
 CALCULATIONS IN SECTIONS
 ==================================================
@@ -353,19 +394,45 @@ Instead:
 
 - calculation_outputs contains the output names of calculations
   belonging to the section.
-
 - Every value in calculation_outputs must exactly match an `output`
-  from the global calculations list.
-
+  from the global calculations list for the SAME table_id as the section.
 - Preserve the logical presentation order when possible.
+- Preserve named intermediate calculations before calculations that
+  depend on them.
 
-- A calculation may depend on another calculation even if the backend
-  later executes them in a different order.
+Example logical order:
+
+n₁
+s₀
+
+not only:
+
+s₀
+
+when the instruction explicitly defines n₁ as a separate intermediate.
 
 
 ==================================================
 CHARTS
 ==================================================
+
+Every ChartSpecification MUST contain table_id.
+
+table_id identifies the measurement table from which this
+particular data series obtains its x and y values.
+
+Several ChartSpecification objects sharing the same figure_id
+may use different table_id values.
+
+Example:
+
+A common physical figure may contain:
+
+- n = f(U) from table_id = 5
+- n0 = f(U) from table_id = 2
+
+Both series may share the same figure_id, but each series must
+retain its own table_id.
 
 Extract only charts required by the instruction.
 
@@ -390,6 +457,10 @@ y = "P"
 Rules:
 
 - x and y contain only variable names.
+- When x or y corresponds to an AVAILABLE EXCEL COLUMN,
+  use the exact Excel column name whenever possible.
+- A chart may use a variable produced by a calculation.
+- Do not invent additional charts.
 
 Correct:
 
@@ -400,39 +471,83 @@ Incorrect:
 
 y = "Uk(I)"
 
-- When x or y corresponds to an AVAILABLE EXCEL COLUMN,
-  use the exact Excel column name whenever possible.
+FILTERED CHART SERIES
 
-- A chart may use a variable produced by a calculation.
+A ChartSpecification may describe only a subset of rows
+from its source table.
 
-- Do not invent additional charts.
+Use:
+
+- filter_column
+- filter_value
+
+when the instruction requires several series with the same
+x and y variables but for different fixed values of another
+quantity.
+
+Example:
+
+For one common figure containing:
+
+n = f(U) for Ts = 0.25 TN
+n = f(U) for Ts = 0.5 TN
+n = f(U) for Ts = TN
+
+create three ChartSpecification objects with:
+
+x = U
+y = n
+filter_column = Ts
+filter_value = the corresponding Ts value or category
+label = a human-readable series name.
+
+If a series does not require filtering, return null for
+filter_column and filter_value.
 
 
 ==================================================
 CHART GROUPING
 ==================================================
 
-If multiple characteristics are explicitly required on the SAME chart,
-give them the same figure_id.
+A ChartSpecification represents ONE data series.
+
+figure_id identifies the PHYSICAL FIGURE shown in the final report.
+
+Several ChartSpecification objects may share the same figure_id.
+
+If the instruction explicitly says that multiple characteristics
+must be shown on the same chart, all corresponding ChartSpecification
+objects MUST have exactly the same figure_id.
 
 Example:
 
-"Na jednym wykresie przedstawić Uk(I), P(I) oraz cosφK(I)"
+"Na jednym wspólnym wykresie przedstawić:
+I = f(P),
+cosφ = f(P),
+s = f(P),
+η = f(P)"
 
-becomes:
+must become:
 
-Uk(I)     figure_id = 1
-P(I)      figure_id = 1
-cosφK(I)  figure_id = 1
+I(P)       figure_id = 1
+cosφ(P)    figure_id = 1
+s(P)       figure_id = 1
+η(P)       figure_id = 1
 
+Do NOT assign separate figure_id values in this case.
 
-If characteristics are required on separate charts,
-use different figure_id values.
+Assign a new figure_id only when the instruction requires
+a separate physical figure.
 
-figure_id values should start from 1 and be assigned sequentially.
+figure_id values should be sequential across PHYSICAL FIGURES,
+not across individual ChartSpecification objects.
 
-Do not reuse the same figure_id for charts that the instruction says
-must be separate.
+figure_id identifies the physical figure.
+
+table_id identifies the data source of one individual series.
+
+Do not assume that all series sharing one figure_id come from
+the same measurement table.
 
 
 ==================================================
@@ -443,14 +558,16 @@ Sections do not duplicate chart definitions.
 
 Instead:
 
-- chart_figure_ids contains figure_id values of charts belonging
+- chart_figure_ids contains PHYSICAL figure_id values belonging
   to the section.
-
-- Every figure_id in chart_figure_ids must correspond to a chart
-  from the global charts list.
-
-- A chart should normally belong to the measurement/result section
-  whose data it represents.
+- Every figure_id in chart_figure_ids must correspond to at least one
+  ChartSpecification from the global charts list.
+- If several ChartSpecification objects share one figure_id,
+  include that figure_id only ONCE in chart_figure_ids.
+- A physical figure must belong to exactly one ReportSection.
+- Never assign the same figure_id to multiple ReportSections.
+- Determine section ownership from the represented variables and
+  measurement stage, not from the numerical value of figure_id.
 
 
 ==================================================
@@ -460,7 +577,6 @@ DESCRIPTION AND ANALYSIS
 For measurement/result sections:
 
 - include_description should normally be true.
-
 - include_analysis should normally be true when the section contains
   measured results, calculated results or charts that require interpretation.
 
@@ -485,37 +601,22 @@ Do not use source_section instead of ReportSection objects.
 
 
 ==================================================
-CONSISTENCY RULES
-==================================================
-
-Before returning the result, ensure that:
-
-- every calculation_outputs value exists in calculations.output,
-
-- every chart_figure_ids value exists in charts.figure_id,
-
-- calculated table columns correspond to calculation outputs,
-
-- existing measurement variables use AVAILABLE EXCEL COLUMNS
-  whenever possible,
-
-- figure_id values are consistent,
-
-- section_id values start at 1 and are sequential,
-
-- no formula, chart or section has been invented without support
-  from the instruction or Excel metadata.
-  
 MEASUREMENT TABLES
+==================================================
 
 The backend provides a list of available measurement tables.
 
-Each table has:
+Each table may contain:
+
 - table_id,
 - title,
 - sheet_name,
 - columns,
-- units.
+- units,
+- column_has_values.
+
+`column_has_values`, when provided, indicates whether a given Excel
+column currently contains any values.
 
 Every ReportSection must reference exactly one measurement table
 using table_id.
@@ -527,12 +628,60 @@ Rules:
 - Do not invent table_id values.
 - Do not assign the same table to multiple unrelated measurement stages
   unless the instruction clearly indicates that they use the same data.
-- The columns selected in ReportSection.table.columns must exist
-  in the measurement table referenced by table_id.
+- ReportSection.table.columns must preserve all columns from the
+  measurement table referenced by table_id.
 - Calculations for a section must use variables available in its
   measurement table or outputs calculated from those variables.
 - Charts belonging to a section must use data available in the
-  measurement table referenced by that section.
+  measurement table referenced by that section or calculated outputs
+  assigned to the same table.
+
+
+==================================================
+CONSISTENCY RULES
+==================================================
+
+Before returning the result, ensure that:
+
+- every calculation_outputs value exists in calculations.output for
+  the same table_id as the section,
+
+- every chart_figure_ids value exists in charts.figure_id,
+
+- each physical figure_id belongs to exactly one ReportSection,
+
+- repeated figure_id values in charts are allowed when they represent
+  multiple series on one physical figure,
+
+- table.columns preserves all columns from the matched Excel table
+  in their original order,
+
+- named intermediate quantities explicitly defined in the instruction
+  are preserved as separate CalculationSpecification objects,
+
+- later calculations reference those named intermediate quantities
+  by variable name instead of duplicating their full expression,
+
+- if the same named intermediate is needed in different tables,
+  it is defined separately for each table_id,
+
+- populated Excel columns are not overwritten by new calculations
+  unless explicitly required by the instruction,
+
+- empty result columns with explicit formulas are represented by
+  calculations when needed,
+
+- existing measurement variables use exact AVAILABLE EXCEL COLUMN
+  names whenever possible,
+
+- chart axes and chart grouping follow the instruction exactly,
+
+- figure_id values are sequential across physical figures,
+
+- section_id values start at 1 and are sequential,
+
+- no formula, chart, section, table column or unit has been invented
+  without support from the instruction or Excel metadata.
 """
 
 MODEL = "gpt-5.6"
@@ -585,8 +734,10 @@ Rules:
 - Do not remove required charts merely to avoid the validation error.
 - Do not invent new measurements, tables, calculations or variables.
 - Keep table assignments consistent with available measurement tables.
-- Figure IDs must be globally unique.
-- Every figure must belong to exactly one report section.
+- A physical figure_id may be shared by multiple ChartSpecification
+  objects when they represent multiple series on the same physical figure.
+- Each physical figure_id must belong to exactly one ReportSection.
+- Do not assign the same physical figure_id to multiple ReportSections.
 - Return the complete corrected ReportSpecification.
 """
 
@@ -684,24 +835,10 @@ def parse_report_instruction_with_repair(
             measurement_tables=measurement_tables,
         )
 
-        print(
-            "[SPEC VALIDATION] Specification valid."
-        )
-
         return specification
 
     except ValueError as error:
         first_error = str(error)
-
-        print(
-            "[SPEC VALIDATION] Validation failed:"
-        )
-        print(first_error)
-
-
-    print(
-        "[SPEC REPAIR] Starting automatic repair..."
-    )
 
     repaired_specification = repair_report_specification(
         specification=specification,
@@ -720,10 +857,6 @@ def parse_report_instruction_with_repair(
     except ValueError as error:
         second_error = str(error)
 
-        print(
-            "[SPEC REPAIR] Repair failed:"
-        )
-        print(second_error)
 
         raise ValueError(
             "Report specification remained invalid "
@@ -732,8 +865,5 @@ def parse_report_instruction_with_repair(
             f"Repair error: {second_error}"
         )
 
-    print(
-        "[SPEC REPAIR] Specification repaired successfully."
-    )
 
     return repaired_specification

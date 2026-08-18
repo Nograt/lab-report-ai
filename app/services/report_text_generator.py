@@ -1,13 +1,12 @@
 import json
 
-from app.schemas.analysis import SectionAnalysis
-from app.schemas.section import ReportSection
-from app.schemas.report_text import SectionTextContent, ReportTextContent
-from app.schemas.report import ReportSpecification
 from app.core.openai_client import client
+from app.schemas.analysis import SectionAnalysis
+from app.schemas.report import ReportSpecification
+from app.schemas.report_text import ReportTextContent
 
 
-MODEL = "gpt-5.6"
+MODEL = "gpt-5.6-luna"
 
 REPORT_SYSTEM_PROMPT = """
 You write complete laboratory report text in Polish.
