@@ -1,11 +1,14 @@
-from pathlib import Path
-from uuid import uuid4
 import json
 import shutil
+
+from pathlib import Path
 from typing import BinaryIO
+from uuid import uuid4
+
 import pandas as pd
+
+from app.schemas.report_metadata import ReportMetadata
 from app.services.excel_reader import MeasurementTableData
-from app.schemas.report_metadata import (ReportMetadata,)
 
 
 
@@ -160,22 +163,6 @@ def save_report_state_data(
             ensure_ascii=False,
             indent=4
         )
-
-    return file_path
-
-def save_completed_measurements(
-    df: pd.DataFrame,
-    report_dir: Path
-) -> Path:
-
-    file_path = (
-        report_dir / "completed_measurements.xlsx"
-    )
-
-    df.to_excel(
-        file_path,
-        index=False
-    )
 
     return file_path
 

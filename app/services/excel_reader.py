@@ -1,6 +1,8 @@
 from dataclasses import dataclass
-import pandas as pd
 from typing import BinaryIO
+
+import pandas as pd
+
 from app.schemas.measurement import MeasurementTableInfo
 
 @dataclass
@@ -107,15 +109,6 @@ KNOWN_UNITS = {
 
 
 def normalize_unit(value) -> str | None:
-    """
-    Zamienia wartość komórki z jednostką na string lub None.
-
-    Przykłady:
-    V       -> "V"
-    obr/min -> "obr/min"
-    -       -> None
-    NaN     -> None
-    """
 
     if pd.isna(value):
         return None
@@ -129,9 +122,7 @@ def normalize_unit(value) -> str | None:
 
 
 def is_unit_value(value) -> bool:
-    """
-    Sprawdza, czy komórka wygląda jak jednostka.
-    """
+   
 
     if pd.isna(value):
         return True
@@ -219,11 +210,7 @@ def read_measurement_tables(
             axis=0,
             how="all",
         )
-
-        df = df.dropna(
-            axis=1,
-            how="all",
-        )
+        df = remove_unused_unnamed_columns(df)
 
         if df.empty:
             continue
@@ -289,28 +276,41 @@ def read_measurement_tables(
     return measurement_tables
 
 
+def get_chart_data(
+    df: pd.DataFrame,
+    x_column: str,
+    y_column: str,
+) -> tuple[pd.Series, pd.Series]:
 
-
-
-def get_chart_data(df: pd.DataFrame, x_column: str, y_column: str)-> tuple[pd.Series, pd.Series]:
-    
     if x_column not in df.columns:
-        raise ValueError(f"Unable to find {x_column} in DataFrame columns: {df.columns}")
-    
+        raise ValueError(
+            f"Unable to find '{x_column}' in DataFrame columns: "
+            f"{df.columns.tolist()}"
+        )
+
     if y_column not in df.columns:
-            raise ValueError(f"Unable to find {y_column} in DataFrame columns: {df.columns}")
-        
+        raise ValueError(
+            f"Unable to find '{y_column}' in DataFrame columns: "
+            f"{df.columns.tolist()}"
+        )
+
     try:
-        x = pd.to_numeric(df[x_column], errors="raise")
-        y = pd.to_numeric(df[y_column], errors="raise")
+        x = pd.to_numeric(
+            df[x_column],
+            errors="raise",
+        )
+        y = pd.to_numeric(
+            df[y_column],
+            errors="raise",
+        )
 
     except ValueError:
         raise ValueError(
             f"Kolumny {x_column} lub {y_column} "
             "zawierają wartości, które nie są liczbami."
         )
-        
-    return (x,y)
+
+    return x, y
 
 def get_measurement_table(
     tables: list[MeasurementTableData],
@@ -324,20 +324,6 @@ def get_measurement_table(
     raise ValueError(
         f"Measurement table with table_id={table_id} does not exist."
     )
-  
-def read_meansurements(
-    file: str | BinaryIO,
-) -> tuple[pd.DataFrame, dict[str, str | None]]:
-
-    tables = read_measurement_tables(file)
-
-    first_table = tables[0]
-
-    return (
-        first_table.dataframe.copy(),
-        first_table.units.copy(),
-    )
-    
     
 def read_completed_measurement_tables(
     file: str | BinaryIO,
@@ -371,11 +357,8 @@ def read_completed_measurement_tables(
             axis=0,
             how="all",
         )
-
-        df = df.dropna(
-            axis=1,
-            how="all",
-        )
+        
+        df = remove_unused_unnamed_columns(df)
 
         df = convert_numeric_columns(df)
 
@@ -411,3 +394,24 @@ def read_completed_measurement_tables(
         )
 
     return tables   
+
+
+def remove_unused_unnamed_columns(
+    df: pd.DataFrame,
+) -> pd.DataFrame:
+
+    columns_to_drop = []
+
+    for column in df.columns:
+
+        if (
+            str(column).startswith("Unnamed:")
+            and df[column].isna().all()
+        ):
+            columns_to_drop.append(
+                column
+            )
+
+    return df.drop(
+        columns=columns_to_drop
+    )

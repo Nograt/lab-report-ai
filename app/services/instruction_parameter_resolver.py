@@ -3,6 +3,16 @@ from app.schemas.instruction_parameters import (
 )
 
 
+def format_parameter_value(
+    value: float,
+) -> str:
+
+    if value.is_integer():
+        return str(int(value))
+
+    return str(value)
+
+
 def apply_instruction_parameters(
     instruction: str,
     parameters: list[InstructionParameterValue],
@@ -20,21 +30,23 @@ def apply_instruction_parameters(
 
     for parameter in parameters:
 
+        value = format_parameter_value(
+            parameter.value
+        )
+
         if parameter.unit:
             value_text = (
                 f"{parameter.symbol} = "
-                f"{parameter.value} "
+                f"{value} "
                 f"{parameter.unit}"
             )
 
         else:
             value_text = (
                 f"{parameter.symbol} = "
-                f"{parameter.value}"
+                f"{value}"
             )
 
-        lines.append(
-            value_text
-        )
+        lines.append(value_text)
 
     return "\n".join(lines)

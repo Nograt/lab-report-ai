@@ -575,8 +575,6 @@ Before returning the result ensure that:
   parser without requiring it to reinterpret the original PDF.
 """
 
-
-
 def prepare_instruction(
     instruction_file_id: str,
     measurement_tables: list[MeasurementTableInfo],

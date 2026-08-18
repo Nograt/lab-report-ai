@@ -1,5 +1,3 @@
-
-import json
 from app.schemas.report import ReportSpecification
 from app.core.openai_client import client
 from app.schemas.measurement import MeasurementTableInfo
@@ -418,6 +416,24 @@ when the instruction explicitly defines n₁ as a separate intermediate.
 CHARTS
 ==================================================
 
+Every ChartSpecification MUST contain table_id.
+
+table_id identifies the measurement table from which this
+particular data series obtains its x and y values.
+
+Several ChartSpecification objects sharing the same figure_id
+may use different table_id values.
+
+Example:
+
+A common physical figure may contain:
+
+- n = f(U) from table_id = 5
+- n0 = f(U) from table_id = 2
+
+Both series may share the same figure_id, but each series must
+retain its own table_id.
+
 Extract only charts required by the instruction.
 
 A characteristic written as:
@@ -454,6 +470,39 @@ y = "Uk"
 Incorrect:
 
 y = "Uk(I)"
+
+FILTERED CHART SERIES
+
+A ChartSpecification may describe only a subset of rows
+from its source table.
+
+Use:
+
+- filter_column
+- filter_value
+
+when the instruction requires several series with the same
+x and y variables but for different fixed values of another
+quantity.
+
+Example:
+
+For one common figure containing:
+
+n = f(U) for Ts = 0.25 TN
+n = f(U) for Ts = 0.5 TN
+n = f(U) for Ts = TN
+
+create three ChartSpecification objects with:
+
+x = U
+y = n
+filter_column = Ts
+filter_value = the corresponding Ts value or category
+label = a human-readable series name.
+
+If a series does not require filtering, return null for
+filter_column and filter_value.
 
 
 ==================================================
@@ -492,6 +541,13 @@ a separate physical figure.
 
 figure_id values should be sequential across PHYSICAL FIGURES,
 not across individual ChartSpecification objects.
+
+figure_id identifies the physical figure.
+
+table_id identifies the data source of one individual series.
+
+Do not assume that all series sharing one figure_id come from
+the same measurement table.
 
 
 ==================================================
@@ -678,8 +734,10 @@ Rules:
 - Do not remove required charts merely to avoid the validation error.
 - Do not invent new measurements, tables, calculations or variables.
 - Keep table assignments consistent with available measurement tables.
-- Figure IDs must be globally unique.
-- Every figure must belong to exactly one report section.
+- A physical figure_id may be shared by multiple ChartSpecification
+  objects when they represent multiple series on the same physical figure.
+- Each physical figure_id must belong to exactly one ReportSection.
+- Do not assign the same physical figure_id to multiple ReportSections.
 - Return the complete corrected ReportSpecification.
 """
 
@@ -777,24 +835,10 @@ def parse_report_instruction_with_repair(
             measurement_tables=measurement_tables,
         )
 
-        print(
-            "[SPEC VALIDATION] Specification valid."
-        )
-
         return specification
 
     except ValueError as error:
         first_error = str(error)
-
-        print(
-            "[SPEC VALIDATION] Validation failed:"
-        )
-        print(first_error)
-
-
-    print(
-        "[SPEC REPAIR] Starting automatic repair..."
-    )
 
     repaired_specification = repair_report_specification(
         specification=specification,
@@ -813,10 +857,6 @@ def parse_report_instruction_with_repair(
     except ValueError as error:
         second_error = str(error)
 
-        print(
-            "[SPEC REPAIR] Repair failed:"
-        )
-        print(second_error)
 
         raise ValueError(
             "Report specification remained invalid "
@@ -825,8 +865,5 @@ def parse_report_instruction_with_repair(
             f"Repair error: {second_error}"
         )
 
-    print(
-        "[SPEC REPAIR] Specification repaired successfully."
-    )
 
     return repaired_specification
