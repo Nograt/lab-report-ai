@@ -569,8 +569,6 @@ def update_report_charts(
     report_id: str,
     request: UpdateChartsRequest,
 ):
-    
-
     try:
         state = load_report_state(report_id)
         report_dir = get_report_dir(report_id)
@@ -581,13 +579,12 @@ def update_report_charts(
             detail=str(error),
         )
 
-
-    measurements_path = (
+    completed_file = (
         report_dir
         / state["completed_measurements_file"]
     )
 
-    if not measurements_path.exists():
+    if not completed_file.exists():
         raise HTTPException(
             status_code=404,
             detail="Completed measurements file does not exist.",
@@ -595,7 +592,7 @@ def update_report_charts(
 
     try:
         tables = read_completed_measurement_tables(
-            file=str(measurements_path),
+            file=str(completed_file),
             metadata=state["measurement_tables"],
         )
 
@@ -605,90 +602,52 @@ def update_report_charts(
             detail=str(error),
         )
 
-
     specification = ReportSpecification.model_validate(
         state["specification"]
     )
 
-
-    section_by_figure_id = {}
-
-    for section in specification.sections:
-
-        for figure_id in section.chart_figure_ids:
-
-            if figure_id in section_by_figure_id:
-                raise HTTPException(
-                    status_code=422,
-                    detail=(
-                        f"Chart figure_id={figure_id} "
-                        "belongs to more than one section."
-                    ),
-                )
-
-            section_by_figure_id[
-                figure_id
-            ] = section
-
-
-
-    charts_by_id = {
-        chart.figure_id: ChartSpecification(
-            figure_id=chart.figure_id,
-            x=chart.x,
-            y=chart.y,
-        )
-        for chart in specification.charts
+    valid_figure_ids = {
+        figure_id
+        for section in specification.sections
+        for figure_id in section.chart_figure_ids
     }
 
-    for saved_chart_data in state.get(
-        "charts",
-        [],
-    ):
-        saved_chart = (
-            ChartSpecification.model_validate(
-                saved_chart_data
-            )
-        )
-
-        charts_by_id[
-            saved_chart.figure_id
-        ] = saved_chart
-
-
-
-    request_figure_ids = [
-        chart.figure_id
-        for chart in request.charts
-    ]
-
-    if len(request_figure_ids) != len(
-        set(request_figure_ids)
-    ):
+    if len(request.charts) != len(specification.charts):
         raise HTTPException(
             status_code=422,
             detail=(
-                "The PATCH request contains duplicate "
-                "figure_id values."
+                "The number of chart series cannot be changed. "
+                f"Expected {len(specification.charts)}, "
+                f"received {len(request.charts)}."
             ),
         )
 
+    normalized_charts: list[ChartSpecification] = []
 
     try:
-        for chart in request.charts:
+        for index, chart in enumerate(request.charts):
+            original_chart = specification.charts[index]
 
-            section = section_by_figure_id.get(
-                chart.figure_id
-            )
+            if chart.figure_id != original_chart.figure_id:
+                raise ValueError(
+                    "Chart series order or figure_id changed "
+                    f"at index {index}."
+                )
 
-            if section is None:
+            if chart.table_id != original_chart.table_id:
+                raise ValueError(
+                    "Chart series table_id changed "
+                    f"at index {index}."
+                )
+
+            if chart.figure_id not in valid_figure_ids:
                 raise ValueError(
                     f"Unknown figure_id={chart.figure_id}."
                 )
 
             table = get_measurement_table(
                 tables=tables,
-                table_id=section.table_id,
+                table_id=chart.table_id,
             )
 
             x = match_column_name(
@@ -701,16 +660,14 @@ def update_report_charts(
                 table.dataframe,
             )
 
-            normalized_chart = chart.model_copy(
-                update={
-                    "x": x,
-                    "y": y,
-                }
+            normalized_charts.append(
+                chart.model_copy(
+                    update={
+                        "x": x,
+                        "y": y,
+                    }
+                )
             )
-
-            charts_by_id[
-                chart.figure_id
-            ] = normalized_chart
 
     except ValueError as error:
         raise HTTPException(
@@ -719,35 +676,51 @@ def update_report_charts(
         )
 
 
+    charts_by_figure: dict[
+        int,
+        list[ChartSpecification],
+    ] = {}
 
-    charts = sorted(
-        charts_by_id.values(),
-        key=lambda chart: chart.figure_id,
-    )
+    for chart in normalized_charts:
+        charts_by_figure.setdefault(
+            chart.figure_id,
+            [],
+        ).append(chart)
+
+    for figure_id, figure_charts in charts_by_figure.items():
+        shared_x = figure_charts[0].x
+
+        if any(
+            chart.x != shared_x
+            for chart in figure_charts
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Figure {figure_id} requires "
+                    "the same x-axis for all series."
+                ),
+            )
 
 
     updated_specification_charts = []
 
-    for parsed_chart in specification.charts:
-
-        current_chart = charts_by_id.get(
-            parsed_chart.figure_id
-        )
-
-        if current_chart is None:
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    f"Missing chart figure_id="
-                    f"{parsed_chart.figure_id}."
-                ),
-            )
-
+    for original_chart, current_chart in zip(
+        specification.charts,
+        normalized_charts,
+    ):
         updated_specification_charts.append(
-            parsed_chart.model_copy(
+            original_chart.model_copy(
                 update={
                     "x": current_chart.x,
                     "y": current_chart.y,
+                    "filter_column": (
+                        current_chart.filter_column
+                    ),
+                    "filter_value": (
+                        current_chart.filter_value
+                    ),
+                    "label": current_chart.label,
                 }
             )
         )
@@ -758,27 +731,20 @@ def update_report_charts(
         }
     )
 
-
-    temp_dir = (
-        report_dir
-        / "charts_temp"
-    )
+    temp_dir = report_dir / "charts_temp"
 
     if temp_dir.exists():
         shutil.rmtree(temp_dir)
 
     try:
-        generated_files = (
-            generate_multi_table_charts(
-                specification=specification,
-                tables=tables,
-                charts=charts,
-                output_dir=temp_dir,
-            )
+        generated_files = generate_multi_table_charts(
+            specification=specification,
+            tables=tables,
+            charts=normalized_charts,
+            output_dir=temp_dir,
         )
 
     except ValueError as error:
-
         if temp_dir.exists():
             shutil.rmtree(temp_dir)
 
@@ -787,24 +753,16 @@ def update_report_charts(
             detail=str(error),
         )
 
-
-    charts_dir = (
-        report_dir
-        / "charts"
-    )
+    charts_dir = report_dir / "charts"
 
     if charts_dir.exists():
         shutil.rmtree(charts_dir)
 
-    temp_dir.rename(
-        charts_dir
-    )
-
-
+    temp_dir.rename(charts_dir)
 
     state["charts"] = [
         chart.model_dump()
-        for chart in charts
+        for chart in normalized_charts
     ]
 
     state["specification"] = (
@@ -816,15 +774,12 @@ def update_report_charts(
         state,
     )
 
-
     return {
         "report_id": report_id,
-
         "charts": [
             chart.model_dump()
-            for chart in charts
+            for chart in normalized_charts
         ],
-
         "generated_charts": len(
             generated_files
         ),

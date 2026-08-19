@@ -97,7 +97,6 @@ export async function analyzeReport(
 
   return response.json();
 }
-
 export type ReportState = {
   report_id: string;
 
@@ -120,16 +119,12 @@ export type ReportState = {
     rows: number;
   }[];
 
-  charts?: {
-    figure_id: number;
-    x: string;
-    y: string;
-  }[];
+  charts?: ReportChart[];
 
   report_text?: Record<string, unknown>;
-
   metadata?: Record<string, unknown>;
 };
+
 
 export async function getReport(
   reportId: string,
@@ -141,6 +136,97 @@ export async function getReport(
 
     throw new Error(
       error?.detail ?? "Nie udało się pobrać sprawozdania.",
+    );
+  }
+
+  return response.json();
+}
+
+
+export type ReportDataTable = {
+  table_id: number;
+  title: string | null;
+  sheet_name: string;
+  columns: string[];
+  units: Record<string, string>;
+  rows: Record<string, unknown>[];
+};
+
+export type ReportDataResponse = {
+  report_id: string;
+  tables: ReportDataTable[];
+};
+
+export async function getReportData(
+  reportId: string,
+): Promise<ReportDataResponse> {
+  const response = await fetch(
+    `/backend/reports/${reportId}/data`,
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => null);
+
+    throw new Error(
+      error?.detail ?? "Nie udało się pobrać danych pomiarowych.",
+    );
+  }
+
+  return response.json();
+}
+
+
+export type ReportChart = {
+  figure_id: number;
+  table_id: number;
+
+  x: string;
+  y: string;
+
+  filter_column?: string | null;
+  filter_value?: number | string | null;
+  label?: string | null;
+
+  connect_points: boolean;
+
+  x_scale: "linear" | "log";
+  y_scale: "linear" | "log";
+
+  show_grid: boolean;
+  show_legend: boolean;
+};
+
+
+export type UpdateChartsResponse = {
+  report_id: string;
+  charts: ReportChart[];
+  generated_charts: number;
+};
+
+export async function updateReportCharts(
+  reportId: string,
+  charts: ReportChart[],
+): Promise<UpdateChartsResponse> {
+  const response = await fetch(
+    `/backend/reports/${reportId}/charts`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        charts,
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => null);
+
+    throw new Error(
+      typeof error?.detail === "string"
+        ? error.detail
+        : "Nie udało się zaktualizować wykresów.",
     );
   }
 
