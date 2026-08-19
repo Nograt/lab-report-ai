@@ -5,6 +5,10 @@ const nextConfig: NextConfig = {
     "192.168.1.13",
   ],
 
+  experimental: {
+    proxyTimeout: 3 * 60 * 1000,
+  },
+
   async rewrites() {
     return [
       {

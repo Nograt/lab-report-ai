@@ -1,13 +1,18 @@
 "use client";
-import { prepareInstruction } from "@/lib/api/reports";
-import { useState } from "react";
 import { ParameterField } from "@/components/reports/ParameterField";
 import { FileUploadCard } from "@/components/reports/FileUploadCard";
+import { useEffect, useState } from "react";
 
+import { getSubjects } from "@/lib/api/subjects";
+import type { Subject } from "@/lib/api/subjects";
 import type {
   MissingParameter,
   PrepareInstructionResponse,
 } from "@/lib/api/reports";
+
+import { useRouter } from "next/navigation";
+
+import { analyzeReport, prepareInstruction } from "@/lib/api/reports";
 
 export default function NewReportPage() {
   const [isLoading, setIsLoading] = useState(false);
@@ -19,7 +24,7 @@ export default function NewReportPage() {
 
   const canContinue = instructionFile !== null && measurementsFile !== null;
 
-  const [step, setStep] = useState<1 | 2>(1);
+  const [step, setStep] = useState<1 | 2 | 3>(1);
 
   const [preparedInstruction, setPreparedInstruction] =
     useState<PrepareInstructionResponse | null>(null);
@@ -27,6 +32,37 @@ export default function NewReportPage() {
   const [parameterValues, setParameterValues] = useState<
     Record<string, string>
   >({});
+
+  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [subjectsLoading, setSubjectsLoading] = useState(false);
+
+  const [subjectId, setSubjectId] = useState("");
+  const [executionDate, setExecutionDate] = useState("");
+  const [team, setTeam] = useState("");
+  const [members, setMembers] = useState("");
+
+  useEffect(() => {
+    async function loadSubjects() {
+      try {
+        setSubjectsLoading(true);
+
+        const result = await getSubjects();
+
+        setSubjects(result);
+      } catch (error) {
+        console.error(error);
+      } finally {
+        setSubjectsLoading(false);
+      }
+    }
+
+    loadSubjects();
+  }, []);
+
+  const allParametersFilled =
+    preparedInstruction?.missing_parameters.every(
+      (parameter) => parameterValues[parameter.symbol]?.trim() !== "",
+    ) ?? true;
 
   async function handleContinue() {
     if (!instructionFile || !measurementsFile) {
@@ -60,6 +96,62 @@ export default function NewReportPage() {
       setIsLoading(false);
     }
   }
+
+  const router = useRouter();
+
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generationError, setGenerationError] = useState<string | null>(null);
+  function normalizeNumber(value: string) {
+  return value.trim().replace(",", ".");
+}
+  async function handleGenerateReport() {
+    if (
+      !preparedInstruction ||
+      !measurementsFile ||
+      !subjectId ||
+      !executionDate
+    ) {
+      return;
+    }
+
+    try {
+      setIsGenerating(true);
+      setGenerationError(null);
+
+      const parameters =
+  preparedInstruction.missing_parameters.map((parameter) => ({
+    name: parameter.name,
+    symbol: parameter.symbol,
+    value: normalizeNumber(
+      parameterValues[parameter.symbol],
+    ),
+  }));
+
+      const result = await analyzeReport({
+        instruction: preparedInstruction.instruction,
+        measurementsFile,
+
+        subjectId,
+        executionDate,
+
+        team: team.trim() || undefined,
+        members: members.trim() || undefined,
+
+        parameters,
+      });
+
+      router.push(`/reports/${result.report_id}`);
+    } catch (error) {
+      if (error instanceof Error) {
+        setGenerationError(error.message);
+      } else {
+        setGenerationError("Wystąpił nieoczekiwany błąd.");
+      }
+    } finally {
+      setIsGenerating(false);
+    }
+  }
+
   if (step === 2 && preparedInstruction) {
     return (
       <main className="min-h-[calc(100vh-4rem)]">
@@ -114,9 +206,161 @@ export default function NewReportPage() {
 
             <button
               type="button"
-              className="rounded-lg bg-orange-500 px-5 py-3 text-sm font-medium text-white hover:bg-orange-600"
+              disabled={!allParametersFilled}
+              onClick={() => setStep(3)}
+              className="rounded-lg px-5 py-3 text-sm font-mediumdisabled:cursor-not-alloweddisabled:bg-neutral-200disabled:text-neutral-400 enabled:bg-orange-500 enabled:text-white enabled:hover:bg-orange-600 "
             >
               Dalej
+            </button>
+          </div>
+        </section>
+      </main>
+    );
+  }
+
+  if (step === 3 && preparedInstruction) {
+    return (
+      <main className="min-h-[calc(100vh-4rem)]">
+        <section className="mx-auto max-w-4xl px-6 py-16">
+          <div>
+            <div className="font-mono text-xs font-medium uppercase tracking-[0.18em] text-orange-600">
+              03 / Dane
+            </div>
+
+            <h1 className="mt-4 text-4xl font-semibold tracking-tight text-neutral-950">
+              Dane sprawozdania
+            </h1>
+
+            <p className="mt-4 text-lg leading-8 text-neutral-600">
+              Uzupełnij informacje, które znajdą się w dokumencie końcowym.
+            </p>
+          </div>
+
+          <div className="mt-10 rounded-xl border border-neutral-200 bg-white p-6">
+            <div className="grid gap-6 sm:grid-cols-2">
+              <div className="sm:col-span-2">
+                <label className="text-sm font-medium text-neutral-900">
+                  Przedmiot
+                </label>
+
+                <select
+                  value={subjectId}
+                  onChange={(event) => setSubjectId(event.target.value)}
+                  disabled={subjectsLoading}
+                  className="
+                  mt-2 w-full rounded-lg border border-neutral-300
+                  bg-white px-3 py-2.5 text-sm
+                  outline-none
+                  focus:border-orange-400
+                  focus:ring-2
+                  focus:ring-orange-100
+                "
+                >
+                  <option value="">
+                    {subjectsLoading ? "Pobieranie..." : "Wybierz przedmiot"}
+                  </option>
+
+                  {subjects.map((subject) => (
+                    <option key={subject.id} value={subject.id}>
+                      {subject.name} — {subject.instructor_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-sm font-medium text-neutral-900">
+                  Data wykonania
+                </label>
+
+                <input
+                  type="date"
+                  value={executionDate}
+                  onChange={(event) => setExecutionDate(event.target.value)}
+                  className="
+                  mt-2 w-full rounded-lg border border-neutral-300
+                  bg-white px-3 py-2.5 text-sm
+                  outline-none
+                  focus:border-orange-400
+                  focus:ring-2
+                  focus:ring-orange-100
+                "
+                />
+              </div>
+
+              <div>
+                <label className="text-sm font-medium text-neutral-900">
+                  Zespół
+                </label>
+
+                <input
+                  type="text"
+                  value={team}
+                  onChange={(event) => setTeam(event.target.value)}
+                  placeholder="np. Zespół 3"
+                  className="
+                  mt-2 w-full rounded-lg border border-neutral-300
+                  bg-white px-3 py-2.5 text-sm
+                  outline-none
+                  focus:border-orange-400
+                  focus:ring-2
+                  focus:ring-orange-100
+                "
+                />
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className="text-sm font-medium text-neutral-900">
+                  Członkowie zespołu
+                </label>
+
+                <input
+                  type="text"
+                  value={members}
+                  onChange={(event) => setMembers(event.target.value)}
+                  placeholder="Jan Kowalski, Anna Nowak"
+                  className="
+                  mt-2 w-full rounded-lg border border-neutral-300
+                  bg-white px-3 py-2.5 text-sm
+                  outline-none
+                  focus:border-orange-400
+                  focus:ring-2
+                  focus:ring-orange-100
+                "
+                />
+
+                <p className="mt-2 text-xs text-neutral-500">
+                  Oddziel osoby przecinkami. Jeśli zostawisz pole puste, backend
+                  użyje danych z profilu.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-8 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => setStep(2)}
+              className="rounded-lg border border-neutral-300 bg-white px-5 py-3 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
+            >
+              Wstecz
+            </button>
+
+            <button
+              type="button"
+              disabled={!subjectId || !executionDate || isGenerating}
+              onClick={handleGenerateReport}
+              className="
+    rounded-lg px-5 py-3 text-sm font-medium
+    disabled:cursor-not-allowed
+    disabled:bg-neutral-200
+    disabled:text-neutral-400
+    enabled:bg-orange-500
+    enabled:text-white
+    enabled:hover:bg-orange-600
+  "
+            >
+              {isGenerating ? "Generowanie..." : "Generuj sprawozdanie"}
             </button>
           </div>
         </section>
