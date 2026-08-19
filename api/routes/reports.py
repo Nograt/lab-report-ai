@@ -1551,3 +1551,62 @@ def update_report_text(
         "report_id": report_id,
         "report_text": report_text.model_dump(),
     }
+    
+    
+@router.get(
+    "/{report_id}/setup-images/{image_id}/image"
+)
+def get_setup_image(
+    report_id: str,
+    image_id: str,
+):
+    try:
+        state = load_report_state(
+            report_id
+        )
+
+        report_dir = get_report_dir(
+            report_id
+        )
+
+    except FileNotFoundError as error:
+        raise HTTPException(
+            status_code=404,
+            detail=str(error),
+        )
+
+    image_metadata = next(
+        (
+            image
+            for image in state.get(
+                "setup_images",
+                [],
+            )
+            if image["image_id"] == image_id
+        ),
+        None,
+    )
+
+    if image_metadata is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Schemat nie istnieje.",
+        )
+
+    image_path = (
+        report_dir
+        / "setup"
+        / image_metadata["filename"]
+    )
+
+    if not image_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Plik schematu nie istnieje.",
+        )
+
+    return FileResponse(
+        path=image_path,
+        media_type="image/png",
+        filename=image_metadata["filename"],
+    )
