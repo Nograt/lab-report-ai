@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-
+import { ChartFigureEditor } from "@/components/reports/ChartFigureEditor";
 import { ChartEditor } from "@/components/reports/ChartEditor";
 
 import {
@@ -137,6 +137,31 @@ export default function ReportPage() {
 
     loadReport();
   }, [params.reportId]);
+
+
+const groupedCharts = Object.values(
+  editableCharts.reduce<
+    Record<
+      number,
+      {
+        chart: ReportChart;
+        index: number;
+      }[]
+    >
+  >((groups, chart, index) => {
+    if (!groups[chart.figure_id]) {
+      groups[chart.figure_id] = [];
+    }
+
+    groups[chart.figure_id].push({
+      chart,
+      index,
+    });
+
+    return groups;
+  }, {}),
+);
+
 
   if (isLoading) {
     return (
@@ -378,16 +403,15 @@ export default function ReportPage() {
                   </p>
                 </div>
               ) : (
-                editableCharts.map((chart, index) => (
-                  <ChartEditor
-                    key={`${chart.figure_id}-${index}`}
-                    chart={chart}
-                    tables={report.measurement_tables ?? []}
-                    onChange={(updatedChart) =>
-                      handleChartChange(index, updatedChart)
-                    }
-                  />
-                ))
+                groupedCharts.map((figureCharts) => (
+  <ChartFigureEditor
+    key={figureCharts[0].chart.figure_id}
+    figureId={figureCharts[0].chart.figure_id}
+    charts={figureCharts}
+    tables={report.measurement_tables ?? []}
+    onChange={handleChartChange}
+  />
+))
               )}
             </div>
           </div>

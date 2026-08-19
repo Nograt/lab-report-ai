@@ -101,9 +101,6 @@ export default function NewReportPage() {
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
-  function normalizeNumber(value: string) {
-  return value.trim().replace(",", ".");
-}
   async function handleGenerateReport() {
     if (
       !preparedInstruction ||
@@ -118,14 +115,13 @@ export default function NewReportPage() {
       setIsGenerating(true);
       setGenerationError(null);
 
-      const parameters =
-  preparedInstruction.missing_parameters.map((parameter) => ({
-    name: parameter.name,
-    symbol: parameter.symbol,
-    value: normalizeNumber(
-      parameterValues[parameter.symbol],
-    ),
-  }));
+      const parameters = preparedInstruction.missing_parameters.map(
+        (parameter) => ({
+          name: parameter.name,
+          symbol: parameter.symbol,
+          value: parameterValues[parameter.symbol],
+        }),
+      );
 
       const result = await analyzeReport({
         instruction: preparedInstruction.instruction,

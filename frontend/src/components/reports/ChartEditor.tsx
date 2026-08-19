@@ -31,24 +31,7 @@ export function ChartEditor({
   }
 
   return (
-    <div className="rounded-xl border border-neutral-200 bg-white">
-      <div className="border-b border-neutral-200 px-6 py-5">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="font-mono text-xs text-neutral-400">
-              WYKRES / {chart.figure_id}
-            </p>
-
-            <h3 className="mt-2 font-medium text-neutral-950">
-              {chart.label || `Wykres ${chart.figure_id}`}
-            </h3>
-          </div>
-
-          <p className="font-mono text-xs text-neutral-400">
-            TABELA / {chart.table_id}
-          </p>
-        </div>
-      </div>
+    <div>
 
       <div className="grid gap-6 p-6 md:grid-cols-2">
         {/* X */}
