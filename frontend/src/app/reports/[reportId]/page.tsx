@@ -6,6 +6,11 @@ import { ChartFigureEditor } from "@/components/reports/ChartFigureEditor";
 import { ChartEditor } from "@/components/reports/ChartEditor";
 
 import {
+  updateReportText,
+  type ReportText,
+} from "@/lib/api/reports";
+
+import {
   getReport,
   getReportData,
   updateReportCharts,
@@ -42,6 +47,20 @@ export default function ReportPage() {
   const [chartsError, setChartsError] = useState<string | null>(null);
 
   const [chartsSaved, setChartsSaved] = useState(false);
+
+  const [chartImageVersion, setChartImageVersion] =
+  useState(0);
+  const [editableText, setEditableText] =
+  useState<ReportText | null>(null);
+
+const [textSaving, setTextSaving] =
+  useState(false);
+
+const [textSaved, setTextSaved] =
+  useState(false);
+
+const [textError, setTextError] =
+  useState<string | null>(null);
 
   async function loadReportData() {
     if (reportData) {
@@ -93,6 +112,7 @@ export default function ReportPage() {
       const result = await updateReportCharts(params.reportId, editableCharts);
 
       setEditableCharts(result.charts);
+      setChartImageVersion((current) => current + 1);
 
       setReport((current) =>
         current
@@ -123,6 +143,9 @@ export default function ReportPage() {
         const result = await getReport(params.reportId);
 
         setReport(result);
+        setEditableText(
+  result.report_text ?? null,
+);
         setEditableCharts(result.charts ?? []);
       } catch (error) {
         if (error instanceof Error) {
@@ -137,6 +160,46 @@ export default function ReportPage() {
 
     loadReport();
   }, [params.reportId]);
+
+  async function handleSaveText() {
+  if (!editableText) {
+    return;
+  }
+
+  try {
+    setTextSaving(true);
+    setTextSaved(false);
+    setTextError(null);
+
+    const result = await updateReportText(
+      params.reportId,
+      editableText,
+    );
+
+    setEditableText(result.report_text);
+
+    setReport((current) =>
+      current
+        ? {
+            ...current,
+            report_text: result.report_text,
+          }
+        : current,
+    );
+
+    setTextSaved(true);
+  } catch (error) {
+    if (error instanceof Error) {
+      setTextError(error.message);
+    } else {
+      setTextError(
+        "Wystąpił nieoczekiwany błąd.",
+      );
+    }
+  } finally {
+    setTextSaving(false);
+  }
+}
 
 
 const groupedCharts = Object.values(
@@ -405,41 +468,252 @@ const groupedCharts = Object.values(
               ) : (
                 groupedCharts.map((figureCharts) => (
   <ChartFigureEditor
-    key={figureCharts[0].chart.figure_id}
-    figureId={figureCharts[0].chart.figure_id}
-    charts={figureCharts}
-    tables={report.measurement_tables ?? []}
-    onChange={handleChartChange}
-  />
+  key={figureCharts[0].chart.figure_id}
+  reportId={params.reportId}
+  figureId={
+    figureCharts[0].chart.figure_id
+  }
+  imageVersion={chartImageVersion}
+  charts={figureCharts}
+  tables={
+    report.measurement_tables ?? []
+  }
+  onChange={handleChartChange}
+/>
 ))
-              )}
+              )}D
             </div>
           </div>
         )}
 
-        {activeTab === "text" && (
-          <div className="mt-10">
-            <div>
-              <p className="font-mono text-xs font-medium uppercase tracking-[0.18em] text-orange-600">
-                Raport / Treść
+       {activeTab === "text" && (
+  <div className="mt-10">
+    <div className="flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p className="font-mono text-xs font-medium uppercase tracking-[0.18em] text-orange-600">
+          Raport / Treść
+        </p>
+
+        <h2 className="mt-3 text-2xl font-semibold tracking-tight text-neutral-950">
+          Treść sprawozdania
+        </h2>
+
+        <p className="mt-2 text-sm leading-6 text-neutral-500">
+          Edytuj wygenerowane opisy, analizy i wnioski.
+        </p>
+      </div>
+
+      <button
+        type="button"
+        onClick={handleSaveText}
+        disabled={textSaving || !editableText}
+        className="
+          w-fit rounded-lg px-5 py-3 text-sm font-medium
+          disabled:cursor-not-allowed
+          disabled:bg-neutral-200
+          disabled:text-neutral-400
+          enabled:bg-orange-500
+          enabled:text-white
+          enabled:hover:bg-orange-600
+        "
+      >
+        {textSaving
+          ? "Zapisywanie..."
+          : "Zapisz treść"}
+      </button>
+    </div>
+
+    {textError && (
+      <div className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4">
+        <p className="text-sm text-red-700">
+          {textError}
+        </p>
+      </div>
+    )}
+
+    {textSaved && (
+      <div className="mt-6 rounded-xl border border-green-200 bg-green-50 p-4">
+        <p className="text-sm text-green-700">
+          Treść została zapisana.
+        </p>
+      </div>
+    )}
+
+    {!editableText ? (
+      <div className="mt-8 rounded-xl border border-neutral-200 bg-white p-8">
+        <p className="text-sm text-neutral-500">
+          Brak wygenerowanej treści raportu.
+        </p>
+      </div>
+    ) : (
+      <div className="mt-8 space-y-6">
+        <section className="rounded-xl border border-neutral-200 bg-white p-6">
+          <p className="font-mono text-xs text-neutral-400">
+            CEL ĆWICZENIA
+          </p>
+
+          <textarea
+            value={editableText.purpose}
+            onChange={(event) =>
+              setEditableText({
+                ...editableText,
+                purpose: event.target.value,
+              })
+            }
+            rows={4}
+            className="mt-4 w-full resize-y rounded-lg border border-neutral-200 px-4 py-3 text-sm leading-7 text-neutral-700 outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100"
+          />
+        </section>
+
+        <section className="rounded-xl border border-neutral-200 bg-white p-6">
+          <p className="font-mono text-xs text-neutral-400">
+            OPIS STANOWISKA
+          </p>
+
+          <textarea
+            value={editableText.setup_description}
+            onChange={(event) =>
+              setEditableText({
+                ...editableText,
+                setup_description:
+                  event.target.value,
+              })
+            }
+            rows={6}
+            className="mt-4 w-full resize-y rounded-lg border border-neutral-200 px-4 py-3 text-sm leading-7 text-neutral-700 outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100"
+          />
+        </section>
+
+        {editableText.theory !== null &&
+          editableText.theory !== undefined && (
+            <section className="rounded-xl border border-neutral-200 bg-white p-6">
+              <p className="font-mono text-xs text-neutral-400">
+                WSTĘP TEORETYCZNY
               </p>
 
-              <h2 className="mt-3 text-2xl font-semibold tracking-tight text-neutral-950">
-                Treść sprawozdania
-              </h2>
+              <textarea
+                value={editableText.theory}
+                onChange={(event) =>
+                  setEditableText({
+                    ...editableText,
+                    theory: event.target.value,
+                  })
+                }
+                rows={8}
+                className="mt-4 w-full resize-y rounded-lg border border-neutral-200 px-4 py-3 text-sm leading-7 text-neutral-700 outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100"
+              />
+            </section>
+          )}
 
-              <p className="mt-2 text-sm leading-6 text-neutral-500">
-                Podgląd wygenerowanych opisów, analiz i wniosków.
-              </p>
-            </div>
+        {editableText.sections.map(
+          (sectionText, index) => {
+            const section =
+              report.specification?.sections?.find(
+                (item) =>
+                  item.section_id ===
+                  sectionText.section_id,
+              );
 
-            <div className="mt-8 rounded-xl border border-neutral-200 bg-white p-8">
-              <p className="text-sm text-neutral-500">
-                W kolejnym kroku wyświetlimy tutaj dane z report_text.
-              </p>
-            </div>
-          </div>
+            return (
+              <section
+                key={sectionText.section_id}
+                className="rounded-xl border border-neutral-200 bg-white"
+              >
+                <div className="border-b border-neutral-200 px-6 py-5">
+                  <p className="font-mono text-xs text-neutral-400">
+                    SEKCJA / {sectionText.section_id}
+                  </p>
+
+                  <h3 className="mt-2 text-lg font-medium text-neutral-950">
+                    {section?.title ??
+                      `Sekcja ${sectionText.section_id}`}
+                  </h3>
+                </div>
+
+                <div className="space-y-6 p-6">
+                  <div>
+                    <p className="font-mono text-xs text-neutral-400">
+                      OPIS
+                    </p>
+
+                    <textarea
+                      value={sectionText.description}
+                      onChange={(event) =>
+                        setEditableText({
+                          ...editableText,
+                          sections:
+                            editableText.sections.map(
+                              (item, itemIndex) =>
+                                itemIndex === index
+                                  ? {
+                                      ...item,
+                                      description:
+                                        event.target.value,
+                                    }
+                                  : item,
+                            ),
+                        })
+                      }
+                      rows={6}
+                      className="mt-3 w-full resize-y rounded-lg border border-neutral-200 px-4 py-3 text-sm leading-7 text-neutral-700 outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100"
+                    />
+                  </div>
+
+                  <div>
+                    <p className="font-mono text-xs text-neutral-400">
+                      ANALIZA
+                    </p>
+
+                    <textarea
+                      value={sectionText.analysis}
+                      onChange={(event) =>
+                        setEditableText({
+                          ...editableText,
+                          sections:
+                            editableText.sections.map(
+                              (item, itemIndex) =>
+                                itemIndex === index
+                                  ? {
+                                      ...item,
+                                      analysis:
+                                        event.target.value,
+                                    }
+                                  : item,
+                            ),
+                        })
+                      }
+                      rows={8}
+                      className="mt-3 w-full resize-y rounded-lg border border-neutral-200 px-4 py-3 text-sm leading-7 text-neutral-700 outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100"
+                    />
+                  </div>
+                </div>
+              </section>
+            );
+          },
         )}
+
+        <section className="rounded-xl border border-neutral-200 bg-white p-6">
+          <p className="font-mono text-xs text-neutral-400">
+            WNIOSKI
+          </p>
+
+          <textarea
+            value={editableText.conclusions}
+            onChange={(event) =>
+              setEditableText({
+                ...editableText,
+                conclusions:
+                  event.target.value,
+              })
+            }
+            rows={8}
+            className="mt-4 w-full resize-y rounded-lg border border-neutral-200 px-4 py-3 text-sm leading-7 text-neutral-700 outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100"
+          />
+        </section>
+      </div>
+    )}
+  </div>
+)}
 
         {activeTab === "images" && (
           <div className="mt-10">

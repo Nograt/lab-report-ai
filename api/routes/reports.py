@@ -95,6 +95,11 @@ from app.services.subject_storage import (
     get_subject,
 )
 
+from app.schemas.report_text import (
+    ReportTextContent,
+    UpdateReportTextRequest,
+)
+
 router = APIRouter(prefix="/reports", tags=["reports"])
 @router.post("/resolve-instruction")
 async def resolve_instruction(
@@ -1437,4 +1442,112 @@ async def replace_setup_image(
     return {
         "report_id": report_id,
         "image": image_metadata,
+    }
+    
+    
+@router.get("/{report_id}/charts/{figure_id}/image")
+def get_report_chart_image(
+    report_id: str,
+    figure_id: int,
+):
+    try:
+        state = load_report_state(report_id)
+        report_dir = get_report_dir(report_id)
+
+    except FileNotFoundError as error:
+        raise HTTPException(
+            status_code=404,
+            detail=str(error),
+        )
+
+    valid_figure_ids = {
+        chart["figure_id"]
+        for chart in state.get("charts", [])
+    }
+
+    if figure_id not in valid_figure_ids:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"Figure {figure_id} "
+                "does not exist in this report."
+            ),
+        )
+
+    image_path = (
+        report_dir
+        / "charts"
+        / f"figure_{figure_id}.png"
+    )
+
+    if not image_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"Image for figure {figure_id} "
+                "does not exist."
+            ),
+        )
+
+    return FileResponse(
+        path=image_path,
+        media_type="image/png",
+        filename=f"figure_{figure_id}.png",
+    )
+    
+@router.patch("/{report_id}/text")
+def update_report_text(
+    report_id: str,
+    request: UpdateReportTextRequest,
+):
+    try:
+        state = load_report_state(report_id)
+
+    except FileNotFoundError as error:
+        raise HTTPException(
+            status_code=404,
+            detail=str(error),
+        )
+
+    specification = ReportSpecification.model_validate(
+        state["specification"]
+    )
+
+    expected_section_ids = [
+        section.section_id
+        for section in specification.sections
+    ]
+
+    request_section_ids = [
+        section.section_id
+        for section in request.sections
+    ]
+
+    if request_section_ids != expected_section_ids:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Report text sections do not match "
+                "report specification."
+            ),
+        )
+
+    report_text = ReportTextContent(
+        purpose=request.purpose,
+        setup_description=request.setup_description,
+        theory=request.theory,
+        sections=request.sections,
+        conclusions=request.conclusions,
+    )
+
+    state["report_text"] = report_text.model_dump()
+
+    save_report_state_data(
+        report_id,
+        state,
+    )
+
+    return {
+        "report_id": report_id,
+        "report_text": report_text.model_dump(),
     }

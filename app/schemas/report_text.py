@@ -18,3 +18,10 @@ class ReportTextContent(BaseModel):
     )
 
     conclusions: str
+    
+class UpdateReportTextRequest(BaseModel):
+    purpose: str
+    setup_description: str
+    theory: str | None = None
+    sections: list[SectionTextContent]
+    conclusions: str

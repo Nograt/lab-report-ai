@@ -232,3 +232,35 @@ export async function updateReportCharts(
 
   return response.json();
 }
+
+
+export async function updateReportText(
+  reportId: string,
+  reportText: ReportText,
+): Promise<{
+  report_id: string;
+  report_text: ReportText;
+}> {
+  const response = await fetch(
+    `/backend/reports/${reportId}/text`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(reportText),
+    },
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => null);
+
+    throw new Error(
+      typeof error?.detail === "string"
+        ? error.detail
+        : "Nie udało się zapisać treści raportu.",
+    );
+  }
+
+  return response.json();
+}
